@@ -1,0 +1,146 @@
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
+from typing import List, Optional
+import json
+
+from app.models.satellites import Satellite, OrbitState, TLERecord, OMMRecord
+from app.services.celestrak_service import fetch_tle_by_norad_id
+from app.services.tle_parser import parse_tle
+from app.services.omm_parser import parse_omm_json
+from app.schemas.satellites import SatelliteAddRequest, SatelliteUpdateRequest, TLEUploadRequest, OMMUploadRequest
+
+class SatelliteService:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_all_satellites(self) -> List[Satellite]:
+        stmt = select(Satellite).options(selectinload(Satellite.orbit_state))
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_satellite_by_id(self, sat_id: str) -> Optional[Satellite]:
+        stmt = select(Satellite).where(Satellite.id == sat_id).options(selectinload(Satellite.orbit_state))
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+        
+    async def get_satellite_by_norad(self, norad_id: int) -> Optional[Satellite]:
+        stmt = select(Satellite).where(Satellite.norad_id == norad_id).options(selectinload(Satellite.orbit_state))
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def add_satellite_by_norad(self, norad_id: int) -> Satellite:
+        existing = await self.get_satellite_by_norad(norad_id)
+        if existing:
+            raise ValueError("Satellite already exists")
+            
+        raw_tle = await fetch_tle_by_norad_id(norad_id)
+        parsed = parse_tle(raw_tle)
+        
+        sat = Satellite(
+            norad_id=norad_id,
+            name=parsed["name"],
+            international_designator=parsed["international_designator"],
+            object_type="payload",
+            status="active",
+            owner_org="Unknown"
+        )
+        
+        orbit = OrbitState(
+            altitude_km=parsed["altitudeKm"],
+            inclination_deg=parsed["inclinationDeg"],
+            period_minutes=parsed["periodMinutes"],
+            eccentricity=parsed["eccentricity"],
+            raan_deg=parsed["raanDeg"],
+            mean_anomaly_deg=parsed["meanAnomalyDeg"],
+            epoch=parsed["epoch"]
+        )
+        sat.orbit_state = orbit
+        
+        tle = TLERecord(
+            line1=parsed["line1"],
+            line2=parsed["line2"],
+            source="celestrak",
+            epoch=parsed["epoch"]
+        )
+        sat.tle_records.append(tle)
+        
+        self.session.add(sat)
+        await self.session.commit()
+        await self.session.refresh(sat)
+        return sat
+
+    async def update_satellite(self, sat_id: str, updates: SatelliteUpdateRequest) -> Satellite:
+        sat = await self.get_satellite_by_id(sat_id)
+        if not sat:
+            raise ValueError("Satellite not found")
+            
+        if updates.name is not None:
+            sat.name = updates.name
+        if updates.ownerOrg is not None:
+            sat.owner_org = updates.ownerOrg
+        if updates.status is not None:
+            sat.status = updates.status
+            
+        await self.session.commit()
+        await self.session.refresh(sat)
+        return sat
+
+    async def delete_satellite(self, sat_id: str) -> bool:
+        sat = await self.get_satellite_by_id(sat_id)
+        if not sat:
+            return False
+            
+        await self.session.delete(sat)
+        await self.session.commit()
+        return True
+
+    async def upload_tle(self, norad_id: int, raw_tle: str) -> Satellite:
+        sat = await self.get_satellite_by_norad(norad_id)
+        if not sat:
+            raise ValueError(f"Satellite with NORAD ID {norad_id} not found")
+            
+        parsed = parse_tle(raw_tle)
+        
+        tle = TLERecord(
+            line1=parsed["line1"],
+            line2=parsed["line2"],
+            source="manual_upload",
+            epoch=parsed["epoch"]
+        )
+        sat.tle_records.append(tle)
+        
+        if sat.orbit_state:
+            sat.orbit_state.altitude_km = parsed["altitudeKm"]
+            sat.orbit_state.inclination_deg = parsed["inclinationDeg"]
+            sat.orbit_state.period_minutes = parsed["periodMinutes"]
+            sat.orbit_state.eccentricity = parsed["eccentricity"]
+            sat.orbit_state.raan_deg = parsed["raanDeg"]
+            sat.orbit_state.mean_anomaly_deg = parsed["meanAnomalyDeg"]
+            sat.orbit_state.epoch = parsed["epoch"]
+            
+        await self.session.commit()
+        await self.session.refresh(sat)
+        return sat
+
+    async def upload_omm(self, payload: dict) -> Satellite:
+        parsed = parse_omm_json(payload)
+        norad_id = parsed.get("norad_id")
+        
+        if not norad_id:
+            raise ValueError("Missing NORAD_CAT_ID in OMM payload")
+            
+        sat = await self.get_satellite_by_norad(norad_id)
+        if not sat:
+            raise ValueError(f"Satellite with NORAD ID {norad_id} not found")
+            
+        omm = OMMRecord(
+            epoch=parsed["epoch"],
+            payload=json.dumps(payload)
+        )
+        sat.omm_records.append(omm)
+        
+        # In a real app we'd also parse the OMM state to update orbit_state
+        await self.session.commit()
+        await self.session.refresh(sat)
+        return sat

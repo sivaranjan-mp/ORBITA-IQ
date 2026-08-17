@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  "Mission console" theme — chosen deliberately for a satellite operations
+  auth surface: deep space navy panels with a signal-cyan accent (telemetry
+  HUD feel), not the generic cream/terracotta or pure-black/acid-green
+  defaults. Values are HSL triplets consumed via hsl(var(--token)).
+*/
+@layer base {
+  :root {
+    --background: 222 47% 8%;
+    --foreground: 220 33% 93%;
+
+    --card: 222 45% 12%;
+    --card-foreground: 220 33% 93%;
+
+    --primary: 178 58% 51%;
+    --primary-foreground: 222 47% 8%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 220 20% 90%;
+
+    --muted: 220 35% 16%;
+    --muted-foreground: 220 20% 65%;
+
+    --accent: 178 58% 51%;
+    --accent-foreground: 222 47% 8%;
+
+    --destructive: 356 83% 65%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 217 36% 21%;
+    --input: 221 38% 15%;
+    --ring: 178 58% 51%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
