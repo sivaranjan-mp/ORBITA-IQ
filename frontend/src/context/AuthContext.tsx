@@ -23,9 +23,6 @@ interface AuthContextValue {
   refreshProfile: () => Promise<void>;
 }
 
-const PROFILE_COLUMNS =
-  "id, employee_id, full_name, role, department, is_active, last_login_at";
-
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -33,49 +30,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select(PROFILE_COLUMNS)
-      .eq("id", userId)
-      .single();
-
-    if (error) {
-      console.error("Failed to load profile:", error.message);
+  const fetchProfile = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const { data } = await apiClient.get<UserProfile>("/auth/me");
+      setProfile(data);
+    } catch (error) {
+      console.error("Failed to fetch profile", error);
       setProfile(null);
-      return;
+    } finally {
+      setIsLoading(false);
     }
-    setProfile(data as UserProfile);
   }, []);
 
-  // On mount: restore any persisted session (session persistence), then
-  // keep listening for auth state changes (login, logout, token refresh,
-  // password recovery) for the lifetime of the app.
   useEffect(() => {
-    let isMounted = true;
-
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!isMounted) return;
-      setSession(data.session);
-      if (data.session?.user) {
-        await fetchProfile(data.session.user.id);
+    // Initial session check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) {
+        fetchProfile();
+      } else {
+        setIsLoading(false);
       }
-      setIsLoading(false);
-    })();
+    });
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
-      setSession(nextSession);
-      if (nextSession?.user) {
-        await fetchProfile(nextSession.user.id);
+    // Listen for auth state changes (e.g. login, logout, token refresh)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        fetchProfile();
       } else {
         setProfile(null);
+        setIsLoading(false);
       }
     });
 
     return () => {
-      isMounted = false;
-      listener.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, [fetchProfile]);
 
@@ -110,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     if (session?.user) {
-      await fetchProfile(session.user.id);
+      await fetchProfile();
     }
   }, [session, fetchProfile]);
 

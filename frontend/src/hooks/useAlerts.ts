@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 
 import { apiClient } from "@/lib/apiClient";
-import { MOCK_ALERTS } from "@/mock/alerts";
 import type { ConjunctionAlert } from "@/types/alert";
 
 export function useAlerts() {
   const [alerts, setAlerts] = useState<ConjunctionAlert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -16,11 +16,11 @@ export function useAlerts() {
         const { data } = await apiClient.get<ConjunctionAlert[]>("/alerts");
         if (!cancelled) {
           setAlerts(data);
+          setError(null);
         }
-      } catch (error) {
-        console.warn("Failed to fetch alerts from API, falling back to mock data.", error);
+      } catch (err) {
         if (!cancelled) {
-          setAlerts(MOCK_ALERTS);
+          setError(err instanceof Error ? err.message : "Failed to fetch alerts");
         }
       } finally {
         if (!cancelled) {
@@ -36,5 +36,5 @@ export function useAlerts() {
     };
   }, []);
 
-  return { alerts, isLoading };
+  return { alerts, isLoading, error };
 }

@@ -14,3 +14,4 @@ sgp4==2.23
 sqlalchemy
 asyncpg
 greenlet
+apscheduler

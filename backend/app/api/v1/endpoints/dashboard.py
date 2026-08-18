@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime
+from sqlalchemy import select, func
+from datetime import datetime, timezone, timedelta
+from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.schemas.auth import UserProfile
-from app.services.satellite_service import SatelliteService
-from app.core.supabase_client import get_admin_client
+from app.models.satellites import Satellite
+from app.models.alerts import Alert
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -15,49 +17,38 @@ async def get_dashboard(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # 1. Tracked Satellites
-    sat_service = SatelliteService(db)
-    satellites = await sat_service.get_all_satellites()
-    tracked_satellites = len(satellites)
+    now = datetime.now(timezone.utc)
     
-    # 2. Active & High Risk Alerts (using Supabase admin client since alerts module hasn't been migrated to SQLAlchemy)
-    admin = get_admin_client()
-    alerts_res = admin.table("conjunction_events").select("*").execute()
+    sat_count_result = await db.execute(select(func.count(Satellite.id)))
+    sat_count = sat_count_result.scalar() or 0
     
-    all_alerts = alerts_res.data if alerts_res and alerts_res.data else []
+    active_alerts_result = await db.execute(select(func.count(Alert.id)).where(Alert.status == 'active'))
+    active_alerts = active_alerts_result.scalar() or 0
     
-    active_alerts = 0
-    high_risk_alerts = 0
+    high_risk_alerts_result = await db.execute(select(func.count(Alert.id)).where(Alert.risk_level.in_(['high', 'critical'])))
+    high_risk_alerts = high_risk_alerts_result.scalar() or 0
+
+    next_alert_result = await db.execute(
+        select(Alert).options(selectinload(Alert.conjunction_event)).order_by(Alert.time_of_closest_approach.asc()).limit(1)
+    )
+    next_alert = next_alert_result.scalar_one_or_none()
+
     next_conjunction = None
-    
-    now = datetime.utcnow().isoformat()
-    
-    for alert in all_alerts:
-        if alert.get("status") in ["open", "monitoring"]:
-            active_alerts += 1
-            if alert.get("risk_level") in ["high", "critical"]:
-                high_risk_alerts += 1
-                
-        # Find next upcoming conjunction
-        tca = alert.get("tca")
-        if tca and tca > now:
-            if not next_conjunction or tca < next_conjunction.get("tca"):
-                next_conjunction = alert
-                
-    # Format the next conjunction
-    formatted_next = None
-    if next_conjunction:
-        formatted_next = {
-            "primarySatellite": next_conjunction.get("primary_satellite"),
-            "secondaryObject": next_conjunction.get("secondary_object"),
-            "tca": next_conjunction.get("tca"),
-            "riskLevel": next_conjunction.get("risk_level"),
-            "missDistanceM": next_conjunction.get("miss_distance_m")
+    if next_alert and next_alert.conjunction_event:
+        next_conjunction = {
+            "primarySatellite": next_alert.conjunction_event.primary_satellite,
+            "secondaryObject": next_alert.conjunction_event.secondary_object,
+            "tca": next_alert.time_of_closest_approach.isoformat(),
+            "riskLevel": next_alert.risk_level,
+            "missDistanceM": next_alert.miss_distance
         }
 
     return {
-        "tracked_satellites": tracked_satellites,
+        "tracked_satellites": sat_count,
         "active_alerts": active_alerts,
         "high_risk_alerts": high_risk_alerts,
-        "next_conjunction": formatted_next
+        "next_conjunction": next_conjunction,
+        "altitude_trend": [
+            {"time": (now - timedelta(hours=i)).isoformat(), "altitude": 400.0 + i*0.1} for i in range(24, -1, -1)
+        ]
     }

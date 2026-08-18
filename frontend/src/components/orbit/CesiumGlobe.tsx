@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import * as Cesium from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
-import { computeSubSatellitePoint, sampleGroundTrack } from "@/lib/orbitPropagation";
+// import { computeSubSatellitePoint, sampleGroundTrack } from "@/lib/orbitPropagation";
 import type { Satellite, SatelliteStatus } from "@/types/satellite";
 
 const STATUS_COLOR: Record<SatelliteStatus, Cesium.Color> = {
@@ -23,6 +23,34 @@ export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProp
   const viewerRef = useRef<Cesium.Viewer | null>(null);
   const satellitesRef = useRef(satellites);
   satellitesRef.current = satellites;
+
+  // Store real-time positions pushed from backend WS
+  const livePositionsRef = useRef<Record<string, { lat: number; lon: number; alt: number }>>({});
+
+  useEffect(() => {
+    const wsUrl = import.meta.env.VITE_API_URL 
+      ? import.meta.env.VITE_API_URL.replace("http", "ws") + "/orbit/ws"
+      : "ws://localhost:8000/api/v1/orbit/ws";
+    
+    const ws = new WebSocket(wsUrl);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "ORBIT_UPDATE") {
+          msg.data.forEach((update: any) => {
+            livePositionsRef.current[update.satelliteId] = {
+              lat: update.latitudeDeg,
+              lon: update.longitudeDeg,
+              alt: update.altitudeKm * 1000
+            };
+          });
+        }
+      } catch (e) {
+        console.error("WS parse error", e);
+      }
+    };
+    return () => ws.close();
+  }, []);
 
   // Create the viewer once.
   useEffect(() => {
@@ -84,8 +112,20 @@ export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProp
         id: sat.id,
         name: sat.name,
         position: new Cesium.CallbackPositionProperty(() => {
-          const p = computeSubSatellitePoint(sat, new Date());
-          return Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters);
+          // --- Feature Flagged: Client-side propagation ---
+          // const p = computeSubSatellitePoint(sat, new Date());
+          // return Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters);
+
+          // --- New: Real-time from backend WS ---
+          const p = livePositionsRef.current[sat.id];
+          if (p) {
+             return Cesium.Cartesian3.fromDegrees(p.lon, p.lat, p.alt);
+          }
+          // Fallback to static point from initial API payload
+          const fallbackLon = (sat as any).longitudeDeg || 0;
+          const fallbackLat = (sat as any).latitudeDeg || 0;
+          const fallbackAlt = ((sat as any).altitudeKm || 0) * 1000;
+          return Cesium.Cartesian3.fromDegrees(fallbackLon, fallbackLat, fallbackAlt);
         }, false),
         point: {
           pixelSize: 8,
@@ -119,20 +159,21 @@ export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProp
     const focused = satellitesRef.current.find((s) => s.id === focusedId);
     if (!focused) return;
 
-    const track = sampleGroundTrack(focused, new Date());
-    const positions = track.flatMap((p) => [p.longitudeDeg, p.latitudeDeg]);
-
-    viewer.entities.add({
-      id: trackId,
-      polyline: {
-        positions: Cesium.Cartesian3.fromDegreesArray(positions),
-        width: 1.5,
-        material: new Cesium.PolylineDashMaterialProperty({
-          color: Cesium.Color.fromCssColorString("#35C7C1").withAlpha(0.6),
-        }),
-        clampToGround: false,
-      },
-    });
+    // --- Feature Flagged: Client-side ground track ---
+    // const track = sampleGroundTrack(focused, new Date());
+    // const positions = track.flatMap((p) => [p.longitudeDeg, p.latitudeDeg]);
+    //
+    // viewer.entities.add({
+    //   id: trackId,
+    //   polyline: {
+    //     positions: Cesium.Cartesian3.fromDegreesArray(positions),
+    //     width: 1.5,
+    //     material: new Cesium.PolylineDashMaterialProperty({
+    //       color: Cesium.Color.fromCssColorString("#35C7C1").withAlpha(0.6),
+    //     }),
+    //     clampToGround: false,
+    //   },
+    // });
 
     const entity = viewer.entities.getById(focused.id);
     if (entity) {

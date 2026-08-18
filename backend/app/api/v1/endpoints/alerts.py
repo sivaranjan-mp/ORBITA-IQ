@@ -1,75 +1,75 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from datetime import datetime, timedelta, timezone
+from sqlalchemy.ext.asyncio import AsyncSession
+import os
 
-from app.core.supabase_client import get_admin_client, get_public_client
+from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.schemas.auth import UserProfile
 from app.schemas.alerts import ConjunctionAlertResponse, AlertStatusUpdate
+from app.services.alert_service import AlertService
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
-@router.get("", response_model=List[ConjunctionAlertResponse])
-async def get_alerts(current_user: UserProfile = Depends(get_current_user)):
-    admin = get_admin_client()
-    
-    res = admin.table("conjunction_events").select("*").order("tca", desc=True).execute()
-    
-    responses = []
-    for alert in res.data:
-        responses.append({
-            "id": alert["id"],
-            "primarySatellite": alert["primary_satellite"],
-            "primaryNoradId": alert["primary_norad_id"],
-            "secondaryObject": alert["secondary_object"],
-            "secondaryNoradId": alert["secondary_norad_id"],
-            "tca": alert["tca"],
-            "missDistanceM": alert["miss_distance_m"],
-            "probability": alert["probability"],
-            "riskLevel": alert["risk_level"],
-            "status": alert["status"],
-            "detectedBy": alert["detected_by"],
-            "createdAt": alert["created_at"],
-        })
-        
-    return responses
-
-@router.put("/{alert_id}/status", response_model=ConjunctionAlertResponse)
-async def update_alert_status(alert_id: str, update: AlertStatusUpdate, current_user: UserProfile = Depends(get_current_user)):
-    admin = get_admin_client()
-    
-    if update.status not in ["open", "monitoring", "resolved", "dismissed"]:
-        raise HTTPException(status_code=400, detail="Invalid status")
-        
-    res = admin.table("conjunction_events").update({"status": update.status}).eq("id", alert_id).execute()
-    
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Alert not found")
-        
-    alert = res.data[0]
+def _format_alert(alert) -> dict:
     return {
-        "id": alert["id"],
-        "primarySatellite": alert["primary_satellite"],
-        "primaryNoradId": alert["primary_norad_id"],
-        "secondaryObject": alert["secondary_object"],
-        "secondaryNoradId": alert["secondary_norad_id"],
-        "tca": alert["tca"],
-        "missDistanceM": alert["miss_distance_m"],
-        "probability": alert["probability"],
-        "riskLevel": alert["risk_level"],
-        "status": alert["status"],
-        "detectedBy": alert["detected_by"],
-        "createdAt": alert["created_at"],
+        "id": str(alert.id),
+        "primarySatellite": alert.conjunction_event.primary_satellite if alert.conjunction_event else "Unknown",
+        "primaryNoradId": alert.conjunction_event.primary_norad_id if alert.conjunction_event else 0,
+        "secondaryObject": alert.conjunction_event.secondary_object if alert.conjunction_event else "Unknown",
+        "secondaryNoradId": alert.conjunction_event.secondary_norad_id if alert.conjunction_event else 0,
+        "tca": alert.time_of_closest_approach,
+        "missDistanceM": alert.miss_distance,
+        "probability": alert.conjunction_event.probability if alert.conjunction_event else 0.0,
+        "riskLevel": alert.risk_level,
+        "status": alert.status,
+        "detectedBy": alert.conjunction_event.detected_by if alert.conjunction_event else "Unknown",
+        "createdAt": alert.created_at,
     }
 
+@router.get("", response_model=List[ConjunctionAlertResponse])
+async def get_alerts(
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = AlertService(db)
+    alerts = await service.get_all_alerts()
+    return [_format_alert(a) for a in alerts]
+
+@router.put("/{alert_id}/status", response_model=ConjunctionAlertResponse)
+async def update_alert_status(
+    alert_id: str, 
+    update: AlertStatusUpdate, 
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if update.status not in ["active", "acknowledged", "resolved"]:
+        raise HTTPException(status_code=400, detail="Invalid status")
+        
+    service = AlertService(db)
+    alert = await service.update_alert_status(alert_id, update.status)
+    
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+        
+    return _format_alert(alert)
+
 @router.post("/seed", response_model=List[ConjunctionAlertResponse])
-async def seed_mock_alerts(current_user: UserProfile = Depends(get_current_user)):
-    admin = get_admin_client()
+async def seed_mock_alerts(
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if os.getenv("ENVIRONMENT") == "production":
+        raise HTTPException(status_code=403, detail="Seeding not allowed in production")
+        
+    from app.services.conjunction_service import ConjunctionService
+    from app.models.alerts import Alert
     
     now = datetime.now(timezone.utc)
-    hours = lambda h: (now + timedelta(hours=h)).isoformat()
+    hours = lambda h: (now + timedelta(hours=h))
     
-    mock_alerts = [
+    mock_events = [
       {
         "primary_satellite": "ISS (ZARYA)",
         "primary_norad_id": 25544,
@@ -108,27 +108,32 @@ async def seed_mock_alerts(current_user: UserProfile = Depends(get_current_user)
       }
     ]
     
-    # Delete existing
-    admin.table("conjunction_events").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+    c_service = ConjunctionService(db)
+    events = await c_service.seed_mock_alerts(mock_events)
     
-    # Insert new
-    res = admin.table("conjunction_events").insert(mock_alerts).execute()
+    from sqlalchemy.future import select
+    from app.models.satellites import Satellite
+    sat = (await db.execute(select(Satellite))).scalars().first()
     
-    responses = []
-    for alert in res.data:
-        responses.append({
-            "id": alert["id"],
-            "primarySatellite": alert["primary_satellite"],
-            "primaryNoradId": alert["primary_norad_id"],
-            "secondaryObject": alert["secondary_object"],
-            "secondaryNoradId": alert["secondary_norad_id"],
-            "tca": alert["tca"],
-            "missDistanceM": alert["miss_distance_m"],
-            "probability": alert["probability"],
-            "riskLevel": alert["risk_level"],
-            "status": alert["status"],
-            "detectedBy": alert["detected_by"],
-            "createdAt": alert["created_at"],
-        })
+    alerts_created = []
+    if sat:
+        from sqlalchemy import delete
+        await db.execute(delete(Alert))
         
-    return responses
+        for ev in events:
+            alert = Alert(
+                conjunction_event_id=ev.id,
+                satellite_a_id=sat.id,
+                miss_distance=ev.miss_distance_m,
+                time_of_closest_approach=ev.tca,
+                risk_level=ev.risk_level,
+                status="active"
+            )
+            db.add(alert)
+            alerts_created.append(alert)
+        await db.commit()
+        
+        service = AlertService(db)
+        alerts_created = await service.get_all_alerts()
+    
+    return [_format_alert(a) for a in alerts_created]

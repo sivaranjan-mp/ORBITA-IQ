@@ -7,6 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.services.orbit_scheduler import init_scheduler, shutdown_scheduler
 
 settings = get_settings()
 
@@ -28,6 +29,14 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+@app.on_event("startup")
+async def startup_event():
+    init_scheduler()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    shutdown_scheduler()
 
 
 @app.exception_handler(Exception)

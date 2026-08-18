@@ -4,21 +4,17 @@ import { AlertsFeedPanel } from "@/components/dashboard/AlertsFeedPanel";
 import { AltitudeTrendChart } from "@/components/dashboard/AltitudeTrendChart";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { SatelliteQuickList } from "@/components/dashboard/SatelliteQuickList";
-import { useAlerts } from "@/hooks/useAlerts";
-import { getUpcomingAlert } from "@/mock/alerts";
-import { useSatellites } from "@/hooks/useSatellites";
+import { useDashboard } from "@/hooks/useDashboard";
 import { formatCountdown, formatDateTime } from "@/lib/format";
 
 export function DashboardPage() {
-  const { satellites, isLoading: satellitesLoading } = useSatellites();
-  const { alerts, isLoading: alertsLoading } = useAlerts();
+  const { summary, isLoading, error } = useDashboard();
 
-  const activeAlerts = alerts.filter((a) => a.status === "open" || a.status === "monitoring");
-  const highRiskAlerts = activeAlerts.filter(
-    (a) => a.riskLevel === "high" || a.riskLevel === "critical"
-  );
-  const upcoming = getUpcomingAlert(alerts);
-  const isLoading = satellitesLoading || alertsLoading;
+  if (error) {
+    return <div className="text-destructive font-medium p-4">Error loading dashboard: {error}</div>;
+  }
+
+  const upcoming = summary?.next_conjunction;
 
   return (
     <div className="space-y-6">
@@ -32,15 +28,15 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           label="Tracked Satellites"
-          value={String(satellites.length)}
+          value={String(summary?.tracked_satellites ?? "—")}
           icon={Satellite}
           accent="default"
-          sublabel={`${satellites.filter((s) => s.status === "active").length} active`}
+          sublabel="Total satellites in database"
           isLoading={isLoading}
         />
         <KpiCard
           label="Active Alerts"
-          value={String(activeAlerts.length)}
+          value={String(summary?.active_alerts ?? "—")}
           icon={AlertTriangle}
           accent="warning"
           sublabel="Open + monitoring"
@@ -48,7 +44,7 @@ export function DashboardPage() {
         />
         <KpiCard
           label="High Risk Alerts"
-          value={String(highRiskAlerts.length)}
+          value={String(summary?.high_risk_alerts ?? "—")}
           icon={ShieldAlert}
           accent="destructive"
           sublabel="High + critical risk"
@@ -66,7 +62,7 @@ export function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="xl:col-span-2">
-          <AltitudeTrendChart />
+          <AltitudeTrendChart trendData={summary?.altitude_trend} />
         </div>
         <SatelliteQuickList />
       </div>

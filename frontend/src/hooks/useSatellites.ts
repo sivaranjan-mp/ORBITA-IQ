@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 
 import { apiClient } from "@/lib/apiClient";
-import { MOCK_SATELLITES } from "@/mock/satellites";
 import type { Satellite } from "@/types/satellite";
 
 export function useSatellites() {
   const [satellites, setSatellites] = useState<Satellite[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -16,11 +16,11 @@ export function useSatellites() {
         const { data } = await apiClient.get<Satellite[]>("/satellites");
         if (!cancelled) {
           setSatellites(data);
+          setError(null);
         }
-      } catch (error) {
-        console.warn("Failed to fetch satellites from API, falling back to mock data.", error);
+      } catch (err) {
         if (!cancelled) {
-          setSatellites(MOCK_SATELLITES);
+          setError(err instanceof Error ? err.message : "Failed to fetch satellites");
         }
       } finally {
         if (!cancelled) {
@@ -36,5 +36,5 @@ export function useSatellites() {
     };
   }, []);
 
-  return { satellites, isLoading };
+  return { satellites, isLoading, error };
 }
