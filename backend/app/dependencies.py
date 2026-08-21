@@ -39,7 +39,8 @@ async def get_current_user(
 
     user_id = payload.get("sub")
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload.")
 
     admin = get_admin_client()
     result = (
@@ -51,11 +52,13 @@ async def get_current_user(
     )
 
     if not result or not result.data:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User profile not found.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User profile not found.")
 
     profile = result.data
     if not profile.get("is_active", False):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Account is deactivated.")
 
     return UserProfile(**profile)
 

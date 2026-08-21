@@ -18,6 +18,13 @@ interface CesiumGlobeProps {
   onSelect: (satelliteId: string | null) => void;
 }
 
+interface WsOrbitUpdate {
+  satelliteId: string;
+  latitudeDeg: number;
+  longitudeDeg: number;
+  altitudeKm: number;
+}
+
 export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Cesium.Viewer | null>(null);
@@ -30,14 +37,14 @@ export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProp
   useEffect(() => {
     const wsUrl = import.meta.env.VITE_API_URL 
       ? import.meta.env.VITE_API_URL.replace("http", "ws") + "/orbit/ws"
-      : "ws://localhost:8000/api/v1/orbit/ws";
+      : (() => { throw new Error("Missing VITE_API_BASE_URL for WebSocket connection."); })();
     
     const ws = new WebSocket(wsUrl);
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === "ORBIT_UPDATE") {
-          msg.data.forEach((update: any) => {
+          msg.data.forEach((update: WsOrbitUpdate) => {
             livePositionsRef.current[update.satelliteId] = {
               lat: update.latitudeDeg,
               lon: update.longitudeDeg,
@@ -122,9 +129,9 @@ export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProp
              return Cesium.Cartesian3.fromDegrees(p.lon, p.lat, p.alt);
           }
           // Fallback to static point from initial API payload
-          const fallbackLon = (sat as any).longitudeDeg || 0;
-          const fallbackLat = (sat as any).latitudeDeg || 0;
-          const fallbackAlt = ((sat as any).altitudeKm || 0) * 1000;
+          const fallbackLon = sat.longitudeDeg || 0;
+          const fallbackLat = sat.latitudeDeg || 0;
+          const fallbackAlt = (sat.altitudeKm || 0) * 1000;
           return Cesium.Cartesian3.fromDegrees(fallbackLon, fallbackLat, fallbackAlt);
         }, false),
         point: {

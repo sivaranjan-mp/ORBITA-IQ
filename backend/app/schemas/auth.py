@@ -7,7 +7,8 @@ Role = Literal["admin", "operator"]
 
 
 class LoginRequest(BaseModel):
-    employee_id: str = Field(..., min_length=3, max_length=32, examples=["EMP-0042"])
+    employee_id: str = Field(..., min_length=3,
+                             max_length=32, examples=["EMP-0042"])
     password: str = Field(..., min_length=8, max_length=128)
 
     @field_validator("employee_id")

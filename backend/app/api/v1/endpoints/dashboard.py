@@ -12,24 +12,26 @@ from app.models.alerts import Alert
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
+
 @router.get("")
 async def get_dashboard(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     now = datetime.now(timezone.utc)
-    
+
     sat_count_result = await db.execute(select(func.count(Satellite.id)))
     sat_count = sat_count_result.scalar() or 0
-    
+
     active_alerts_result = await db.execute(select(func.count(Alert.id)).where(Alert.status == 'active'))
     active_alerts = active_alerts_result.scalar() or 0
-    
+
     high_risk_alerts_result = await db.execute(select(func.count(Alert.id)).where(Alert.risk_level.in_(['high', 'critical'])))
     high_risk_alerts = high_risk_alerts_result.scalar() or 0
 
     next_alert_result = await db.execute(
-        select(Alert).options(selectinload(Alert.conjunction_event)).order_by(Alert.time_of_closest_approach.asc()).limit(1)
+        select(Alert).options(selectinload(Alert.conjunction_event)).order_by(
+            Alert.time_of_closest_approach.asc()).limit(1)
     )
     next_alert = next_alert_result.scalar_one_or_none()
 

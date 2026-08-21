@@ -2,20 +2,26 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
+
 class SatelliteAddRequest(BaseModel):
-    norad_id: int = Field(..., description="The NORAD ID (CATNR) of the satellite to add")
+    norad_id: int = Field(...,
+                          description="The NORAD ID (CATNR) of the satellite to add")
+
 
 class SatelliteUpdateRequest(BaseModel):
     name: Optional[str] = None
     ownerOrg: Optional[str] = None
     status: Optional[str] = None
 
+
 class TLEUploadRequest(BaseModel):
     norad_id: int
     raw_tle: str
 
+
 class OMMUploadRequest(BaseModel):
     payload: dict
+
 
 class SatelliteResponse(BaseModel):
     id: str

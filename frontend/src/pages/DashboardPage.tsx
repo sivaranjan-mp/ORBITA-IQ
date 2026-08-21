@@ -7,6 +7,9 @@ import { SatelliteQuickList } from "@/components/dashboard/SatelliteQuickList";
 import { useDashboard } from "@/hooks/useDashboard";
 import { formatCountdown, formatDateTime } from "@/lib/format";
 
+import { ConjunctionsTable } from "@/components/conjunctions/ConjunctionsTable";
+import { TimelineChart } from "@/components/conjunctions/TimelineChart";
+
 export function DashboardPage() {
   const { summary, isLoading, error } = useDashboard();
 
@@ -68,6 +71,14 @@ export function DashboardPage() {
       </div>
 
       <AlertsFeedPanel />
+      
+      <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
+        <TimelineChart />
+      </div>
+
+      <div className="pt-4">
+        <ConjunctionsTable />
+      </div>
     </div>
   );
 }

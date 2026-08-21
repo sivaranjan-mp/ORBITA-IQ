@@ -6,8 +6,8 @@ from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.schemas.auth import UserProfile
 from app.schemas.satellites import (
-    SatelliteAddRequest, 
-    SatelliteResponse, 
+    SatelliteAddRequest,
+    SatelliteResponse,
     SatelliteUpdateRequest,
     TLEUploadRequest,
     OMMUploadRequest
@@ -16,6 +16,7 @@ from app.services.satellite_service import SatelliteService
 from app.models.satellites import Satellite
 
 router = APIRouter(prefix="/satellites", tags=["satellites"])
+
 
 def _format_satellite_response(sat: Satellite) -> dict:
     resp = {
@@ -33,7 +34,7 @@ def _format_satellite_response(sat: Satellite) -> dict:
         "raanDeg": 0.0,
         "meanAnomalyDeg": 0.0,
     }
-    
+
     if sat.orbit_state:
         resp.update({
             "altitudeKm": sat.orbit_state.altitude_km,
@@ -45,6 +46,7 @@ def _format_satellite_response(sat: Satellite) -> dict:
             "meanAnomalyDeg": sat.orbit_state.mean_anomaly_deg,
         })
     return resp
+
 
 @router.get("", response_model=List[SatelliteResponse])
 async def list_satellites(
@@ -71,9 +73,10 @@ async def list_satellites(
         }
     ]
 
+
 @router.get("/{id}", response_model=SatelliteResponse)
 async def get_satellite(
-    id: str, 
+    id: str,
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -83,9 +86,10 @@ async def get_satellite(
         raise HTTPException(status_code=404, detail="Satellite not found")
     return _format_satellite_response(sat)
 
+
 @router.post("/norad", response_model=SatelliteResponse)
 async def add_satellite_by_norad(
-    request: SatelliteAddRequest, 
+    request: SatelliteAddRequest,
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -98,10 +102,11 @@ async def add_satellite_by_norad(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.put("/{id}", response_model=SatelliteResponse)
 async def update_satellite(
-    id: str, 
-    request: SatelliteUpdateRequest, 
+    id: str,
+    request: SatelliteUpdateRequest,
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -112,24 +117,27 @@ async def update_satellite(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+
 @router.delete("/{id}")
 async def delete_satellite(
-    id: str, 
+    id: str,
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Only admins can delete satellites")
-        
+        raise HTTPException(
+            status_code=403, detail="Only admins can delete satellites")
+
     service = SatelliteService(db)
     success = await service.delete_satellite(id)
     if not success:
         raise HTTPException(status_code=404, detail="Satellite not found")
     return {"message": "Satellite successfully deleted"}
 
+
 @router.post("/upload-tle")
 async def upload_tle(
-    request: TLEUploadRequest, 
+    request: TLEUploadRequest,
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -140,9 +148,10 @@ async def upload_tle(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.post("/upload-omm")
 async def upload_omm(
-    request: OMMUploadRequest, 
+    request: OMMUploadRequest,
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):

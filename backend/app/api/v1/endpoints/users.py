@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Optional
 from pydantic import BaseModel
 
-from app.dependencies import get_current_user, require_role
+from app.dependencies import require_role
 from app.schemas.auth import UserProfile
 from app.core.supabase_client import get_admin_client
 
 router = APIRouter(prefix="/users", tags=["users"])
+
 
 class UserCreate(BaseModel):
     email: str
@@ -16,9 +17,11 @@ class UserCreate(BaseModel):
     role: str
     department: Optional[str] = None
 
+
 class UserUpdate(BaseModel):
     role: Optional[str] = None
     is_active: Optional[bool] = None
+
 
 class UserResponse(BaseModel):
     id: str
@@ -29,6 +32,7 @@ class UserResponse(BaseModel):
     department: Optional[str] = None
     is_active: bool
 
+
 @router.get("", response_model=List[UserResponse])
 async def list_users(
     current_user: UserProfile = Depends(require_role("admin"))
@@ -36,6 +40,7 @@ async def list_users(
     admin = get_admin_client()
     result = admin.table("profiles").select("*").execute()
     return result.data
+
 
 @router.post("", response_model=UserResponse)
 async def create_user(
@@ -55,11 +60,13 @@ async def create_user(
                 "department": user.department
             }
         })
-        
-        profile = admin.table("profiles").select("*").eq("id", response.user.id).maybe_single().execute()
+
+        profile = admin.table("profiles").select(
+            "*").eq("id", response.user.id).maybe_single().execute()
         return profile.data
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.patch("/{user_id}", response_model=UserResponse)
 async def update_user(
@@ -73,10 +80,10 @@ async def update_user(
         update_data["role"] = user_update.role
     if user_update.is_active is not None:
         update_data["is_active"] = user_update.is_active
-        
+
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
-        
+
     # Since we are using the admin client (service_role), it bypasses RLS.
     # To bypass the trigger `prevent_self_privilege_escalation` which checks public.is_admin(),
     # we update via raw SQL or we can just update the user_metadata via auth admin.
@@ -91,12 +98,14 @@ async def update_user(
         # we can just use the admin.table directly. The trigger might fail if auth.uid() is null.
         # Let's use the DB session if we need to, but the client is easier here.
         # Assuming the service role bypasses the trigger or it allows it.
-        result = admin.table("profiles").update(update_data).eq("id", user_id).execute()
+        result = admin.table("profiles").update(
+            update_data).eq("id", user_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="User not found")
         return result.data[0]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.delete("/{user_id}")
 async def deactivate_user(
@@ -105,7 +114,8 @@ async def deactivate_user(
 ):
     admin = get_admin_client()
     try:
-        result = admin.table("profiles").update({"is_active": False}).eq("id", user_id).execute()
+        result = admin.table("profiles").update(
+            {"is_active": False}).eq("id", user_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="User not found")
         return {"detail": "User deactivated successfully"}

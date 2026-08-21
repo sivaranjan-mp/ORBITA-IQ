@@ -1,8 +1,10 @@
 from pydantic import BaseModel
 from datetime import datetime
 
+
 class AlertStatusUpdate(BaseModel):
     status: str
+
 
 class ConjunctionAlertResponse(BaseModel):
     id: str

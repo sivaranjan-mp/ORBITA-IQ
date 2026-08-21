@@ -60,13 +60,16 @@ class AuthService:
         profile_row = self._get_profile_by_employee_id(payload.employee_id)
 
         if profile_row is None:
-            self._record_attempt(None, payload.employee_id, ip_address, success=False)
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, GENERIC_LOGIN_ERROR)
+            self._record_attempt(None, payload.employee_id,
+                                 ip_address, success=False)
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, GENERIC_LOGIN_ERROR)
 
         self._assert_not_locked(profile_row)
 
         if not profile_row.get("is_active", False):
-            self._record_attempt(profile_row["id"], payload.employee_id, ip_address, success=False)
+            self._record_attempt(
+                profile_row["id"], payload.employee_id, ip_address, success=False)
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, "Account is deactivated. Contact an administrator."
             )
@@ -76,16 +79,21 @@ class AuthService:
                 {"email": profile_row["email"], "password": payload.password}
             )
         except AuthApiError:
-            self._register_failed_attempt(profile_row, payload.employee_id, ip_address)
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, GENERIC_LOGIN_ERROR)
+            self._register_failed_attempt(
+                profile_row, payload.employee_id, ip_address)
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, GENERIC_LOGIN_ERROR)
 
         session = auth_response.session
         if session is None:
-            self._register_failed_attempt(profile_row, payload.employee_id, ip_address)
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, GENERIC_LOGIN_ERROR)
+            self._register_failed_attempt(
+                profile_row, payload.employee_id, ip_address)
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, GENERIC_LOGIN_ERROR)
 
         self._reset_failed_attempts(profile_row["id"])
-        self._record_attempt(profile_row["id"], payload.employee_id, ip_address, success=True)
+        self._record_attempt(
+            profile_row["id"], payload.employee_id, ip_address, success=True)
 
         now_iso = datetime.now(timezone.utc).isoformat()
         self.admin.table("profiles").update({"last_login_at": now_iso}).eq(
@@ -117,15 +125,18 @@ class AuthService:
         try:
             auth_response = self.public.auth.refresh_session(refresh_token)
         except AuthApiError:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired. Please log in again.")
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                                "Session expired. Please log in again.")
 
         session = auth_response.session
         if session is None or auth_response.user is None:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired. Please log in again.")
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                                "Session expired. Please log in again.")
 
         profile_row = self._get_profile_by_id(auth_response.user.id)
         if profile_row is None or not profile_row.get("is_active", False):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is deactivated.")
+            raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                "Account is deactivated.")
 
         user = UserProfile(
             id=profile_row["id"],
@@ -204,7 +215,8 @@ class AuthService:
         locked_until_dt = datetime.fromisoformat(locked_until)
         if locked_until_dt > datetime.now(timezone.utc):
             remaining_minutes = (
-                int((locked_until_dt - datetime.now(timezone.utc)).total_seconds() // 60) + 1
+                int((locked_until_dt - datetime.now(timezone.utc)
+                     ).total_seconds() // 60) + 1
             )
             raise HTTPException(
                 status.HTTP_423_LOCKED,
@@ -225,8 +237,10 @@ class AuthService:
             update["locked_until"] = locked_until.isoformat()
             update["failed_login_attempts"] = 0
 
-        self.admin.table("profiles").update(update).eq("id", profile_row["id"]).execute()
-        self._record_attempt(profile_row["id"], employee_id, ip_address, success=False)
+        self.admin.table("profiles").update(update).eq(
+            "id", profile_row["id"]).execute()
+        self._record_attempt(
+            profile_row["id"], employee_id, ip_address, success=False)
 
     def _reset_failed_attempts(self, user_id: str) -> None:
         self.admin.table("profiles").update(

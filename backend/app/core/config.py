@@ -7,6 +7,7 @@ source of truth instead of scattered os.environ.get() calls.
 """
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,18 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    @model_validator(mode="after")
+    def validate_production_cors(self) -> "Settings":
+        if self.environment == "production":
+            is_invalid = (
+                not self.cors_origins or
+                any("localhost" in origin or "127.0.0.1" in origin for origin in self.cors_origins)
+            )
+            if is_invalid:
+                raise ValueError(
+                    "CORS_ORIGINS must be explicitly set to real origins in production.")
+        return self
+
     # ---- Auth / JWT ----
     access_token_audience: str = "authenticated"
 
@@ -38,4 +51,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    kwargs: dict = {}
+    return Settings(**kwargs)

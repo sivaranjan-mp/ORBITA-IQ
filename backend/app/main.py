@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -11,10 +12,18 @@ from app.services.orbit_scheduler import init_scheduler, shutdown_scheduler
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_scheduler()
+    yield
+    shutdown_scheduler()
+
 app = FastAPI(
     title="Satellite Ops & Conjunction Intelligence — Auth Service",
     version="1.0.0",
     description="Employee ID based authentication service (Admin / Operator roles) backed by Supabase Auth.",
+    lifespan=lifespan,
 )
 
 app.state.limiter = limiter
@@ -29,14 +38,6 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
-
-@app.on_event("startup")
-async def startup_event():
-    init_scheduler()
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    shutdown_scheduler()
 
 
 @app.exception_handler(Exception)

@@ -2,7 +2,11 @@ import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
 import { supabase } from "@/lib/supabaseClient";
 
-const baseURL = (import.meta.env.VITE_API_BASE_URL as string) ?? "http://localhost:8000/api/v1";
+const baseURL = (import.meta.env.VITE_API_BASE_URL as string);
+
+if (!baseURL) {
+  throw new Error("Missing VITE_API_BASE_URL. Check your .env file.");
+}
 
 export const apiClient = axios.create({ baseURL });
 

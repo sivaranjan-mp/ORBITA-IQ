@@ -20,7 +20,8 @@ def test_health_check():
 
 
 def test_login_rejects_missing_fields():
-    response = client.post("/api/v1/auth/login", json={"employee_id": "EMP-0001"})
+    response = client.post("/api/v1/auth/login",
+                           json={"employee_id": "EMP-0001"})
     assert response.status_code == 422
 
 
