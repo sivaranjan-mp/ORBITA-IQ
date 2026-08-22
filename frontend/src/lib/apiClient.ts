@@ -30,28 +30,31 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as (InternalAxiosRequestConfig & { _retried?: boolean }) | undefined;
 
-    if (
-      error.response?.status === 401 &&
-      originalRequest &&
-      !originalRequest._retried &&
-      !isRefreshing &&
-      !originalRequest.url?.includes("/auth/")
-    ) {
-      originalRequest._retried = true;
-      isRefreshing = true;
-      try {
-        const { data, error: refreshError } = await supabase.auth.refreshSession();
-        if (!refreshError && data.session) {
-          originalRequest.headers = originalRequest.headers ?? {};
-          originalRequest.headers.Authorization = `Bearer ${data.session.access_token}`;
-          return apiClient.request(originalRequest);
-        }
-      } finally {
-        isRefreshing = false;
+    if (error.response?.status === 401 && originalRequest) {
+      // Axios may strip custom config properties, so we use a header to track retries.
+      if (originalRequest.headers['X-Retried']) {
+        await supabase.auth.signOut();
+        alert("Session validation failed on the server. Please log in again.");
+        window.location.assign("/login");
+        return Promise.reject(error);
       }
 
-      await supabase.auth.signOut();
-      window.location.assign("/login");
+      if (!isRefreshing && !originalRequest.url?.includes("/auth/")) {
+        originalRequest.headers['X-Retried'] = 'true';
+        isRefreshing = true;
+        try {
+          const { data, error: refreshError } = await supabase.auth.refreshSession();
+          if (!refreshError && data.session) {
+            originalRequest.headers.Authorization = `Bearer ${data.session.access_token}`;
+            return await apiClient.request(originalRequest);
+          }
+        } finally {
+          isRefreshing = false;
+        }
+
+        await supabase.auth.signOut();
+        window.location.assign("/login");
+      }
     }
 
     return Promise.reject(error);

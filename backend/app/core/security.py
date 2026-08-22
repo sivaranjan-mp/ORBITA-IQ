@@ -8,11 +8,14 @@ round-trip per protected request while remaining cryptographically
 sound, as long as SUPABASE_JWT_SECRET is kept secret on the backend.
 """
 import jwt
-from jwt import PyJWTError
+from jwt import PyJWKClient, PyJWTError
 
 from app.core.config import get_settings
 
 settings = get_settings()
+
+jwks_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+jwks_client = PyJWKClient(jwks_url)
 
 
 class TokenError(Exception):
@@ -21,10 +24,11 @@ class TokenError(Exception):
 
 def decode_access_token(token: str) -> dict:
     try:
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
         return jwt.decode(
             token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
+            signing_key.key,
+            algorithms=["RS256"],
             audience=settings.access_token_audience,
         )
     except PyJWTError as exc:
