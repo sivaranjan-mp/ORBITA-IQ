@@ -45,12 +45,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Initial session check
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       if (session) {
         fetchProfile();
       } else {
-        setIsLoading(false);
+        const autoLoginEnabled = import.meta.env.VITE_AUTO_LOGIN_ENABLED === 'true';
+        if (autoLoginEnabled) {
+          const email = import.meta.env.VITE_SHARED_LOGIN_EMAIL as string;
+          const password = import.meta.env.VITE_SHARED_LOGIN_PASSWORD as string;
+          if (email && password) {
+            try {
+              const { data } = await apiClient.post<TokenResponse>("/auth/login", {
+                employee_id: email,
+                password,
+              });
+
+              const { error } = await supabase.auth.setSession({
+                access_token: data.access_token,
+                refresh_token: data.refresh_token,
+              });
+              if (error) throw error;
+              
+              // Note: setting session triggers onAuthStateChange which handles fetchProfile and setIsLoading(false)
+            } catch (err) {
+              console.error("Auto login failed", err);
+              setIsLoading(false);
+            }
+          } else {
+            console.warn("Auto login enabled but credentials missing");
+            setIsLoading(false);
+          }
+        } else {
+          setIsLoading(false);
+        }
       }
     });
 
@@ -88,6 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    if (import.meta.env.VITE_AUTO_LOGIN_ENABLED === 'true') {
+      return;
+    }
     const { data } = await supabase.auth.getSession();
     const refreshToken = data.session?.refresh_token;
     try {
