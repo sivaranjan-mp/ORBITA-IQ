@@ -16,10 +16,11 @@ export function RequireRole({
   children: ReactNode;
 }) {
   const { role, isLoading } = useAuth();
+  const isBypass = import.meta.env.DEV && import.meta.env.VITE_DISABLE_LOGIN === 'true';
 
-  if (isLoading) return null;
+  if (isLoading && !isBypass) return null;
 
-  if (!role || !allowed.includes(role)) {
+  if (!isBypass && (!role || !allowed.includes(role))) {
     return <Navigate to="/unauthorized" replace />;
   }
 

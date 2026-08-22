@@ -107,18 +107,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [session, fetchProfile]);
 
+  const isBypass = import.meta.env.DEV && import.meta.env.VITE_DISABLE_LOGIN === 'true';
+
   const value = useMemo<AuthContextValue>(
-    () => ({
-      session,
-      profile,
-      role: profile?.role ?? null,
-      isLoading,
-      isAuthenticated: Boolean(session),
-      login,
-      logout,
-      refreshProfile,
-    }),
-    [session, profile, isLoading, login, logout, refreshProfile]
+    () => {
+      if (isBypass) {
+        return {
+          session: null,
+          profile: {
+            id: "dev-bypass",
+            employee_id: "dev-bypass",
+            full_name: "DEV BYPASS - NOT REAL",
+            role: "admin",
+            department: "DEV",
+            is_active: true,
+            last_login_at: new Date().toISOString(),
+          },
+          role: "admin",
+          isLoading: false,
+          isAuthenticated: true,
+          login: async () => {},
+          logout: async () => {},
+          refreshProfile: async () => {},
+        };
+      }
+
+      return {
+        session,
+        profile,
+        role: profile?.role ?? null,
+        isLoading,
+        isAuthenticated: Boolean(session),
+        login,
+        logout,
+        refreshProfile,
+      };
+    },
+    [session, profile, isLoading, login, logout, refreshProfile, isBypass]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
