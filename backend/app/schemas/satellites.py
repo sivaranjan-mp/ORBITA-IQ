@@ -38,3 +38,19 @@ class SatelliteResponse(BaseModel):
     lastTleEpoch: datetime
     raanDeg: float
     meanAnomalyDeg: float
+
+
+class SatelliteBulkAddRequest(BaseModel):
+    norad_ids: list[int] = Field(..., description="List of NORAD IDs to add")
+
+
+class SatelliteBulkAddResult(BaseModel):
+    norad_id: int
+    success: bool
+    reason: Optional[str] = None
+
+
+class SatelliteBulkAddResponse(BaseModel):
+    successful: int
+    failed: int
+    results: list[SatelliteBulkAddResult]

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
-
+import asyncio
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.schemas.auth import UserProfile
@@ -10,7 +10,10 @@ from app.schemas.satellites import (
     SatelliteResponse,
     SatelliteUpdateRequest,
     TLEUploadRequest,
-    OMMUploadRequest
+    OMMUploadRequest,
+    SatelliteBulkAddRequest,
+    SatelliteBulkAddResponse,
+    SatelliteBulkAddResult,
 )
 from app.services.satellite_service import SatelliteService
 from app.models.satellites import Satellite
@@ -91,6 +94,59 @@ async def add_satellite_by_norad(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/norad/bulk", response_model=SatelliteBulkAddResponse)
+async def add_satellites_by_norad_bulk(
+    request: SatelliteBulkAddRequest,
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = SatelliteService(db)
+    
+    successful = 0
+    failed = 0
+    results = []
+
+    for norad_id in request.norad_ids:
+        try:
+            # We catch exceptions to prevent one failure from stopping the whole batch
+            await service.add_satellite_by_norad(norad_id, owner_org=current_user.employee_id)
+            successful += 1
+            results.append(SatelliteBulkAddResult(
+                norad_id=norad_id,
+                success=True
+            ))
+        except ValueError as e:
+            failed += 1
+            results.append(SatelliteBulkAddResult(
+                norad_id=norad_id,
+                success=False,
+                reason=str(e)
+            ))
+        except HTTPException as e:
+            failed += 1
+            results.append(SatelliteBulkAddResult(
+                norad_id=norad_id,
+                success=False,
+                reason=str(e.detail)
+            ))
+        except Exception as e:
+            failed += 1
+            results.append(SatelliteBulkAddResult(
+                norad_id=norad_id,
+                success=False,
+                reason="Internal Server Error"
+            ))
+        
+        # Sleep to avoid rate limiting from CelesTrak. 1 second is safe.
+        await asyncio.sleep(1.0)
+
+    return SatelliteBulkAddResponse(
+        successful=successful,
+        failed=failed,
+        results=results
+    )
 
 
 @router.put("/{id}", response_model=SatelliteResponse)

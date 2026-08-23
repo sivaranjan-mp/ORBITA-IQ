@@ -42,6 +42,8 @@ app.include_router(api_router)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    import logging
+    logging.getLogger(__name__).exception(f"Unhandled exception during {request.method} {request.url}: {exc}")
     # Never leak internals to the client.
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
