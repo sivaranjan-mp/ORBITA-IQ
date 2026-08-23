@@ -57,14 +57,16 @@ export function AddSatelliteDialog() {
     setIsSubmitting(true);
     
     try {
+      // Split by newline, comma, or space
       const ids = bulkNoradIds
-        .split("\n")
+        .split(/[\n, ]+/)
         .map(id => id.trim())
         .filter(id => id.length > 0)
         .map(Number)
         .filter(id => !isNaN(id));
       
       if (ids.length === 0) {
+        alert("Please enter at least one valid numeric NORAD ID.");
         setIsSubmitting(false);
         return;
       }
@@ -73,6 +75,7 @@ export function AddSatelliteDialog() {
       setBulkResults(response.data.results);
     } catch (error) {
       console.error("Failed to bulk add satellites:", error);
+      alert("An error occurred while tracking satellites. Check the console for details.");
     } finally {
       setIsSubmitting(false);
     }
