@@ -17,22 +17,11 @@ settings = get_settings()
 
 jwks_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
 
-
-class JWKManager:
-    def __init__(self, url: str):
-        self.url = url
-        self._client = PyJWKClient(self.url, cache_keys=True)
-
-    def get_signing_key(self, token: str):
-        try:
-            return self._client.get_signing_key_from_jwt(token)
-        except PyJWKClientError:
-            # Force a refetch by resetting the client instance to handle key rotation
-            self._client = PyJWKClient(self.url, cache_keys=True)
-            return self._client.get_signing_key_from_jwt(token)
-
-
-jwk_manager = JWKManager(jwks_url)
+# PyJWKClient automatically caches keys when cache_keys=True, and automatically
+# performs one refetch attempt if it encounters an unrecognized 'kid' in a token.
+# Transient network failures during refetch will raise a connection error, but
+# importantly will NOT wipe the last known successful cache.
+jwks_client = PyJWKClient(jwks_url, cache_keys=True)
 
 
 class TokenError(Exception):
@@ -41,9 +30,7 @@ class TokenError(Exception):
 
 def decode_access_token(token: str) -> dict:
     try:
-        # We try to get the signing key (which handles fetching and caching the JWKS).
-        # If it fails, our manager refetches once automatically.
-        signing_key = jwk_manager.get_signing_key(token)
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
         return jwt.decode(
             token,
             signing_key.key,
