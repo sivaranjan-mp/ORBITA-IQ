@@ -30,7 +30,9 @@ async def get_current_user(
 
     try:
         payload = decode_access_token(token)
-    except TokenError:
+    except TokenError as e:
+        import logging
+        logging.getLogger(__name__).error(f"JWT Validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired session.",
