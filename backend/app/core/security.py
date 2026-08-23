@@ -11,6 +11,15 @@ import jwt
 from jwt import PyJWKClient, PyJWTError
 from jwt.exceptions import PyJWKClientError
 
+try:
+    import cryptography  # noqa: F401
+except ImportError:
+    raise RuntimeError(
+        "CRITICAL STARTUP FAILURE: The 'cryptography' package is missing. "
+        "PyJWT requires it for validating ES256/RS256 tokens. "
+        "Make sure PyJWT[crypto] is in requirements.txt."
+    )
+
 from app.core.config import get_settings
 
 settings = get_settings()
