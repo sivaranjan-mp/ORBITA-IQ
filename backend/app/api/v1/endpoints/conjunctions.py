@@ -15,12 +15,12 @@ router = APIRouter(prefix="/conjunctions", tags=["conjunctions"])
 def _format_conjunction(event: ConjunctionEvent) -> dict:
     return {
         "id": str(event.id),
-        "primarySatelliteId": str(event.primary_satellite_id),
-        "primarySatelliteName": event.primary_satellite.name if event.primary_satellite else "Unknown",
-        "primaryNoradId": event.primary_satellite.norad_id if event.primary_satellite else 0,
-        "secondarySatelliteId": str(event.secondary_satellite_id),
-        "secondarySatelliteName": event.secondary_satellite.name if event.secondary_satellite else "Unknown",
-        "secondaryNoradId": event.secondary_satellite.norad_id if event.secondary_satellite else 0,
+        "primarySatelliteId": "unknown",
+        "primarySatelliteName": event.primary_satellite,
+        "primaryNoradId": event.primary_norad_id,
+        "secondarySatelliteId": "unknown",
+        "secondarySatelliteName": event.secondary_object,
+        "secondaryNoradId": event.secondary_norad_id,
         "tca": event.tca,
         "missDistanceKm": event.miss_distance_m / 1000.0,
         "relativeVelocityKmS": event.relative_velocity_km_s,
@@ -37,10 +37,7 @@ async def get_conjunctions(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(ConjunctionEvent).options(
-        selectinload(ConjunctionEvent.primary_satellite),
-        selectinload(ConjunctionEvent.secondary_satellite)
-    ).order_by(ConjunctionEvent.tca.asc())
+    stmt = select(ConjunctionEvent).order_by(ConjunctionEvent.tca.asc())
 
     result = await db.execute(stmt)
     events = result.scalars().all()

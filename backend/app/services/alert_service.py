@@ -52,13 +52,12 @@ class AlertService:
         alert = existing.scalars().first()
 
         if alert:
-            # Update the existing alert if the new risk level is higher or it's just an update
-            # Normally we might update distance and velocity, but for now we just update risk
+            # Update the existing alert
             alert.risk_level = event.risk_level
             alert.miss_distance = event.miss_distance_m
             alert.relative_velocity = event.relative_velocity_km_s
             alert.time_of_closest_approach = event.tca
-            # Add history
+            
             history = AlertHistory(
                 alert_id=alert.id,
                 risk_level=alert.risk_level,
@@ -69,11 +68,18 @@ class AlertService:
             self.session.add(history)
             self.session.add(alert)
         else:
-            # Create a new alert
+            from app.models.satellites import Satellite
+            # Look up satellite UUIDs by NORAD ID
+            sat_a = (await self.session.execute(select(Satellite).where(Satellite.norad_id == event.primary_norad_id))).scalars().first()
+            sat_b = (await self.session.execute(select(Satellite).where(Satellite.norad_id == event.secondary_norad_id))).scalars().first()
+            
+            if not sat_a:
+                raise ValueError(f"Primary satellite with NORAD ID {event.primary_norad_id} not found")
+
             alert = Alert(
                 conjunction_event_id=event.id,
-                satellite_a_id=event.primary_satellite_id,
-                satellite_b_id=event.secondary_satellite_id,
+                satellite_a_id=sat_a.id,
+                satellite_b_id=sat_b.id if sat_b else None,
                 miss_distance=event.miss_distance_m,
                 relative_velocity=event.relative_velocity_km_s,
                 time_of_closest_approach=event.tca,
@@ -81,7 +87,6 @@ class AlertService:
                 status='active'
             )
             self.session.add(alert)
-            # Flush to get alert.id for history
             await self.session.flush()
             
             history = AlertHistory(

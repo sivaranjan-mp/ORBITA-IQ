@@ -16,10 +16,10 @@ class ConjunctionEvent(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    primary_satellite_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey('satellites.id', ondelete='CASCADE'), nullable=False)
-    secondary_satellite_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey('satellites.id', ondelete='CASCADE'), nullable=False)
+    primary_satellite: Mapped[str] = mapped_column(String, nullable=False)
+    primary_norad_id: Mapped[int] = mapped_column(nullable=False)
+    secondary_object: Mapped[str] = mapped_column(String, nullable=False)
+    secondary_norad_id: Mapped[int] = mapped_column(nullable=False)
     tca: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False)
     miss_distance_m: Mapped[float] = mapped_column(Float, nullable=False)
@@ -28,12 +28,8 @@ class ConjunctionEvent(Base):
     probability: Mapped[float] = mapped_column(Float, nullable=False)
     risk_level: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[Optional[str]] = mapped_column(
-        String, default="open")  # was just default="open" originally
+        String, default="open")
     detected_by: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    primary_satellite: Mapped["Satellite"] = relationship(
-        foreign_keys=[primary_satellite_id])
-    secondary_satellite: Mapped["Satellite"] = relationship(
-        foreign_keys=[secondary_satellite_id])

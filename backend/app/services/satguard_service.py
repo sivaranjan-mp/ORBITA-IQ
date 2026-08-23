@@ -163,8 +163,10 @@ class SatguardService:
 
                             # Create Event
                             event = ConjunctionEvent(
-                                primary_satellite_id=sat1_data["sat"].id,
-                                secondary_satellite_id=sat2_data["sat"].id,
+                                primary_satellite=sat1_data["sat"].name,
+                                primary_norad_id=sat1_data["sat"].norad_id,
+                                secondary_object=sat2_data["sat"].name,
+                                secondary_norad_id=sat2_data["sat"].norad_id,
                                 tca=tca,
                                 miss_distance_m=refined_dist * 1000,
                                 relative_velocity_km_s=rel_vel,
