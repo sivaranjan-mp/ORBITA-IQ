@@ -14,8 +14,13 @@ import {
 } from "@/components/ui/table";
 import { useSatellites } from "@/hooks/useSatellites";
 
-export function SatelliteTable() {
-  const { satellites, isLoading } = useSatellites();
+interface SatelliteTableProps {
+  showOwner?: boolean;
+  scope?: "mine" | "all";
+}
+
+export function SatelliteTable({ showOwner = false, scope = "mine" }: SatelliteTableProps = {}) {
+  const { satellites, isLoading } = useSatellites(scope);
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -44,6 +49,7 @@ export function SatelliteTable() {
             <TableRow>
               <TableHead>Satellite</TableHead>
               <TableHead>NORAD ID</TableHead>
+              {showOwner && <TableHead>Owner</TableHead>}
               <TableHead className="text-right">Altitude</TableHead>
               <TableHead className="text-right">Latitude</TableHead>
               <TableHead className="text-right">Longitude</TableHead>
@@ -55,7 +61,7 @@ export function SatelliteTable() {
             {isLoading &&
               Array.from({ length: 6 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={showOwner ? 8 : 7}>
                     <Skeleton className="h-6 w-full" />
                   </TableCell>
                 </TableRow>
@@ -63,7 +69,7 @@ export function SatelliteTable() {
 
             {!isLoading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={showOwner ? 8 : 7} className="py-10 text-center text-muted-foreground">
                   No satellites match "{query}".
                 </TableCell>
               </TableRow>
@@ -77,6 +83,11 @@ export function SatelliteTable() {
                     <p className="text-xs text-muted-foreground">{sat.internationalDesignator}</p>
                   </TableCell>
                   <TableCell className="font-mono text-xs">{sat.noradId}</TableCell>
+                  {showOwner && (
+                    <TableCell className="text-xs text-muted-foreground">
+                      {sat.ownerOrg}
+                    </TableCell>
+                  )}
                   <TableCell className="text-right font-mono text-xs">
                     {sat.altitudeKm.toLocaleString()} km
                   </TableCell>

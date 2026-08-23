@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/satellites", label: "My Satellites", icon: Satellite },
+  { to: "/all-satellites", label: "All Satellites", icon: Globe2 },
   { to: "/alerts", label: "Alerts", icon: AlertTriangle },
   { to: "/orbit-viewer", label: "Orbit Viewer", icon: Globe2 },
   { to: "/settings", label: "Settings", icon: Settings },

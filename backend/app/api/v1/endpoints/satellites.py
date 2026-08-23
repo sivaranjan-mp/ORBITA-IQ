@@ -50,28 +50,18 @@ def _format_satellite_response(sat: Satellite) -> dict:
 
 @router.get("", response_model=List[SatelliteResponse])
 async def list_satellites(
+    scope: str = "mine",
     current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    import uuid
-    from datetime import datetime, timezone
-    return [
-        {
-            "id": str(uuid.uuid4()),
-            "noradId": 25544,
-            "name": "ISS (ZARYA)",
-            "internationalDesignator": "1998-067A",
-            "objectType": "PAYLOAD",
-            "status": "ACTIVE",
-            "ownerOrg": "ISS",
-            "altitudeKm": 418.0,
-            "inclinationDeg": 51.64,
-            "periodMinutes": 92.68,
-            "eccentricity": 0.00067,
-            "lastTleEpoch": datetime.now(timezone.utc),
-            "raanDeg": 12.34,
-            "meanAnomalyDeg": 56.78
-        }
-    ]
+    service = SatelliteService(db)
+    
+    if scope == "mine":
+        satellites = await service.get_all_satellites(owner_org=current_user.employee_id)
+    else:
+        satellites = await service.get_all_satellites()
+        
+    return [_format_satellite_response(sat) for sat in satellites]
 
 
 @router.get("/{id}", response_model=SatelliteResponse)
@@ -95,7 +85,7 @@ async def add_satellite_by_norad(
 ):
     service = SatelliteService(db)
     try:
-        sat = await service.add_satellite_by_norad(request.norad_id)
+        sat = await service.add_satellite_by_norad(request.norad_id, owner_org=current_user.employee_id)
         return _format_satellite_response(sat)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

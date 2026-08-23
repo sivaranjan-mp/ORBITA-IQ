@@ -7,6 +7,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { MySatellitesPage } from "@/pages/MySatellitesPage";
+import { AllSatellitesPage } from "@/pages/AllSatellitesPage";
 import { OrbitViewerPage } from "@/pages/OrbitViewerPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -31,6 +32,7 @@ export function AppRouter() {
       >
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/satellites" element={<MySatellitesPage />} />
+        <Route path="/all-satellites" element={<AllSatellitesPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/orbit-viewer" element={<OrbitViewerPage />} />
         <Route path="/settings" element={<SettingsPage />} />

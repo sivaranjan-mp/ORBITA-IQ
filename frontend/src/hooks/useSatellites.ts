@@ -3,17 +3,18 @@ import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/apiClient";
 import type { Satellite } from "@/types/satellite";
 
-export function useSatellites() {
+export function useSatellites(scope: "mine" | "all" = "mine") {
   const [satellites, setSatellites] = useState<Satellite[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    setIsLoading(true);
 
     const fetchSatellites = async () => {
       try {
-        const { data } = await apiClient.get<Satellite[]>("/satellites");
+        const { data } = await apiClient.get<Satellite[]>(`/satellites?scope=${scope}`);
         if (!cancelled) {
           setSatellites(data);
           setError(null);
@@ -34,7 +35,7 @@ export function useSatellites() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scope]);
 
   return { satellites, isLoading, error };
 }

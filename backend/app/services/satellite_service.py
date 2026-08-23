@@ -15,8 +15,10 @@ class SatelliteService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_all_satellites(self) -> List[Satellite]:
+    async def get_all_satellites(self, owner_org: Optional[str] = None) -> List[Satellite]:
         stmt = select(Satellite).options(selectinload(Satellite.orbit_state))
+        if owner_org:
+            stmt = stmt.where(Satellite.owner_org == owner_org)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
@@ -32,7 +34,7 @@ class SatelliteService:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def add_satellite_by_norad(self, norad_id: int) -> Satellite:
+    async def add_satellite_by_norad(self, norad_id: int, owner_org: str = "Unknown") -> Satellite:
         existing = await self.get_satellite_by_norad(norad_id)
         if existing:
             raise ValueError("Satellite already exists")
@@ -46,7 +48,7 @@ class SatelliteService:
             international_designator=parsed["international_designator"],
             object_type="payload",
             status="active",
-            owner_org="Unknown"
+            owner_org=owner_org
         )
 
         orbit = OrbitState(
