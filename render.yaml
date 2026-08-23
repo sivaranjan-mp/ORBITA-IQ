@@ -16,7 +16,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: FRONTEND_URL
-        value: "https://satellite-ops.vercel.app"
+        value: "https://orbita-iq.vercel.app"
       - key: CORS_ORIGINS
-        value: '["https://satellite-ops.vercel.app"]'
+        value: '["https://satellite-ops.vercel.app", "https://orbita-iq.vercel.app"]'
     autoDeploy: false
