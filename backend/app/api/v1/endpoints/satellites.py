@@ -15,7 +15,7 @@ from app.schemas.satellites import (
     SatelliteBulkAddResponse,
     SatelliteBulkAddResult,
 )
-from app.services.satellite_service import SatelliteService
+from app.services.satellite_service import SatelliteService, DuplicateSatelliteError
 from app.models.satellites import Satellite
 
 router = APIRouter(prefix="/satellites", tags=["satellites"])
@@ -90,6 +90,8 @@ async def add_satellite_by_norad(
     try:
         sat = await service.add_satellite_by_norad(request.norad_id, owner_org=current_user.employee_id)
         return _format_satellite_response(sat)
+    except DuplicateSatelliteError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:

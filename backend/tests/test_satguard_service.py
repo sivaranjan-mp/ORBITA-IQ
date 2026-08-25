@@ -75,4 +75,4 @@ async def test_satguard_synthetic_screening(mock_satrec):
             event_args = db.add.call_args_list[0][0][0]
             assert event_args.miss_distance_m == pytest.approx(
                 2000.0, rel=1e-3)  # 2km in meters
-            assert event_args.primary_satellite_id == "s1"
+            assert event_args.primary_norad_id == sat1.norad_id

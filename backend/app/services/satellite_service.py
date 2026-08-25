@@ -11,6 +11,9 @@ from app.services.omm_parser import parse_omm_json
 from app.schemas.satellites import SatelliteAddRequest, SatelliteUpdateRequest, TLEUploadRequest, OMMUploadRequest
 
 
+class DuplicateSatelliteError(Exception):
+    pass
+
 class SatelliteService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -37,7 +40,7 @@ class SatelliteService:
     async def add_satellite_by_norad(self, norad_id: int, owner_org: str = "Unknown") -> Satellite:
         existing = await self.get_satellite_by_norad(norad_id)
         if existing:
-            raise ValueError("Satellite already exists")
+            raise DuplicateSatelliteError(f"Satellite {norad_id} is already tracked.")
 
         raw_tle = await fetch_tle_by_norad_id(norad_id)
         parsed = parse_tle(raw_tle)
