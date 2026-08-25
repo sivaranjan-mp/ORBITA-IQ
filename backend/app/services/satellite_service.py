@@ -141,7 +141,7 @@ class SatelliteService:
 
         omm = OMMRecord(
             epoch=parsed["epoch"],
-            payload=json.dumps(payload)
+            payload=payload
         )
         sat.omm_records.append(omm)
 
