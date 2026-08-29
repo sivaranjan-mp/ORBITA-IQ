@@ -31,8 +31,8 @@ async def update_orbit_states():
             satellites = result.all()
 
             now = datetime.now(timezone.utc)
-            updates_to_broadcast = []
-
+            # 1. Fetch and propagate all orbits sequentially (respecting limits)
+            computed_states = {}
             for sat_id, norad_id in satellites:
                 try:
                     # Respect CelesTrak rate limits: small sleep between requests
@@ -53,46 +53,52 @@ async def update_orbit_states():
                     if not state:
                         logger.warning(f"Failed to propagate TLE for satellite {norad_id}")
                         continue
-
-                    # Fetch the satellite and lock it FOR UPDATE
-                    sat_result = await db.execute(
-                        select(Satellite)
-                        .where(Satellite.id == sat_id)
-                        .with_for_update()
-                        .options(selectinload(Satellite.orbit_state))
-                    )
-                    sat = sat_result.scalar_one_or_none()
-                    if not sat:
-                        continue
-
-                    # Update database
-                    if not sat.orbit_state:
-                        sat.orbit_state = OrbitState(satellite_id=sat.id, **state)
-                        db.add(sat.orbit_state)
-                    else:
-                        for key, value in state.items():
-                            setattr(sat.orbit_state, key, value)
-
-                    await db.commit()
-
-                    # Prepare update for websocket
-                    updates_to_broadcast.append({
-                        "satelliteId": str(sat.id),
-                        "noradId": sat.norad_id,
-                        "altitudeKm": state["altitude_km"],
-                        "latitudeDeg": state["latitude_deg"],
-                        "longitudeDeg": state["longitude_deg"],
-                        "velocityKmS": state["velocity_km_s"],
-                        "epoch": state["epoch"].isoformat(),
-                        "inclinationDeg": state["inclination_deg"],
-                        "periodMinutes": state["period_minutes"]
-                    })
+                    
+                    computed_states[sat_id] = state
 
                 except Exception as e:
                     logger.error(f"Error processing satellite {norad_id}: {e}")
-                    await db.rollback()
                     # Skip to next satellite, don't crash batch
                     continue
+
+            # 2. Bulk Database Update
+            updates_to_broadcast = []
+            if computed_states:
+                try:
+                    sat_results = await db.execute(
+                        select(Satellite)
+                        .where(Satellite.id.in_(computed_states.keys()))
+                        .with_for_update()
+                        .options(selectinload(Satellite.orbit_state))
+                    )
+                    sats_to_update = sat_results.scalars().all()
+
+                    for sat in sats_to_update:
+                        state = computed_states[sat.id]
+                        if not sat.orbit_state:
+                            sat.orbit_state = OrbitState(satellite_id=sat.id, **state)
+                            db.add(sat.orbit_state)
+                        else:
+                            for key, value in state.items():
+                                setattr(sat.orbit_state, key, value)
+
+                        # Prepare update for websocket
+                        updates_to_broadcast.append({
+                            "satelliteId": str(sat.id),
+                            "noradId": sat.norad_id,
+                            "altitudeKm": state["altitude_km"],
+                            "latitudeDeg": state["latitude_deg"],
+                            "longitudeDeg": state["longitude_deg"],
+                            "velocityKmS": state["velocity_km_s"],
+                            "epoch": state["epoch"].isoformat(),
+                            "inclinationDeg": state["inclination_deg"],
+                            "periodMinutes": state["period_minutes"]
+                        })
+
+                    await db.commit()
+                except Exception as e:
+                    logger.error(f"Error during bulk DB update: {e}")
+                    await db.rollback()
 
             # Broadcast updates if there are any connections
             if updates_to_broadcast:

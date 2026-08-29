@@ -1,4 +1,5 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
+from app.core.security import decode_access_token, TokenError
 from typing import List, Dict
 import logging
 
@@ -43,7 +44,18 @@ orbit_manager = OrbitConnectionManager()
 
 
 @router.websocket("/ws")
-async def orbit_websocket_endpoint(websocket: WebSocket):
+async def orbit_websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    
+    try:
+        decode_access_token(token)
+    except TokenError as e:
+        logger.error(f"WebSocket auth failed: {e}")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await orbit_manager.connect(websocket)
     try:
         while True:

@@ -50,7 +50,7 @@ async def get_dashboard(
         "active_alerts": active_alerts,
         "high_risk_alerts": high_risk_alerts,
         "next_conjunction": next_conjunction,
-        "altitude_trend": [
-            {"time": (now - timedelta(hours=i)).isoformat(), "altitude": 400.0 + i*0.1} for i in range(24, -1, -1)
-        ]
+        # Historical altitude telemetry is not currently persisted in the database.
+        # This is a missing feature that requires a new time-series table.
+        "altitude_trend": []
     }

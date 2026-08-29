@@ -7,6 +7,9 @@ dist/
 
 # Python
 venv/
+.venv/
+test_venv/
+env/
 __pycache__/
 *.pyc
 .pytest_cache/

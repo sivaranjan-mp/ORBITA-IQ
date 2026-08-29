@@ -98,91 +98,109 @@ class SatguardService:
 
         events_created = 0
 
-        # O(n^2) pair iteration
-        for i in range(len(valid_sats)):
-            for j in range(i + 1, len(valid_sats)):
-                sat1_data = valid_sats[i]
-                sat2_data = valid_sats[j]
+        # Spatial Partitioning: Altitude band bucketing (Complexity: O(n) + O(k * (n/k)^2) vs original O(n^2))
+        BUCKET_SIZE_KM = 50.0
+        buckets = {}
+        for idx, s_data in enumerate(valid_sats):
+            # Extend band by 10km margin on both sides
+            min_b = int(max(0, s_data["perigee"] - 10) // BUCKET_SIZE_KM)
+            max_b = int((s_data["apogee"] + 10) // BUCKET_SIZE_KM)
+            for b in range(min_b, max_b + 1):
+                if b not in buckets:
+                    buckets[b] = []
+                buckets[b].append(idx)
+                
+        candidate_pairs = set()
+        for b_sats in buckets.values():
+            n_b = len(b_sats)
+            for i in range(n_b):
+                for j in range(i + 1, n_b):
+                    idx1, idx2 = (b_sats[i], b_sats[j]) if b_sats[i] < b_sats[j] else (b_sats[j], b_sats[i])
+                    candidate_pairs.add((idx1, idx2))
+                    
+        for idx1, idx2 in candidate_pairs:
+            sat1_data = valid_sats[idx1]
+            sat2_data = valid_sats[idx2]
 
-                # Coarse Filter: Altitude band overlap with 10km margin
-                if sat1_data["perigee"] > sat2_data["apogee"] + 10 or sat2_data["perigee"] > sat1_data["apogee"] + 10:
-                    continue  # Cannot physically collide
+            # Coarse Filter: Altitude band overlap with 10km margin
+            if sat1_data["perigee"] > sat2_data["apogee"] + 10 or sat2_data["perigee"] > sat1_data["apogee"] + 10:
+                continue  # Cannot physically collide
 
-                # Fine Screening
-                try:
-                    satrec1 = Satrec.twoline2rv(
-                        sat1_data["tle"].line1, sat1_data["tle"].line2)
-                    satrec2 = Satrec.twoline2rv(
-                        sat2_data["tle"].line1, sat2_data["tle"].line2)
-                except Exception:
-                    continue
+            # Fine Screening
+            try:
+                satrec1 = Satrec.twoline2rv(
+                    sat1_data["tle"].line1, sat1_data["tle"].line2)
+                satrec2 = Satrec.twoline2rv(
+                    sat2_data["tle"].line1, sat2_data["tle"].line2)
+            except Exception:
+                continue
 
-                min_dist = float('inf')
-                min_t_offset = 0
+            min_dist = float('inf')
+            min_t_offset = 0
 
-                # Coarse time stepping
-                for step in range(steps):
-                    dt = now + timedelta(seconds=step * step_size_s)
+            # Coarse time stepping
+            for step in range(steps):
+                dt = now + timedelta(seconds=step * step_size_s)
+                dist, *_ = self._distance_at_time(satrec1, satrec2, dt)
+
+                if dist < min_dist:
+                    min_dist = dist
+                    min_t_offset = step * step_size_s
+
+            # If coarse minimum is somewhat close (e.g. within 50km), refine it
+            if min_dist < 50.0:
+                def distance_func(t_offset_s):
+                    dt = now + timedelta(seconds=t_offset_s)
                     dist, *_ = self._distance_at_time(satrec1, satrec2, dt)
+                    return dist
 
-                    if dist < min_dist:
-                        min_dist = dist
-                        min_t_offset = step * step_size_s
+                bounds = (max(0, min_t_offset - step_size_s),
+                          min_t_offset + step_size_s)
+                res = minimize_scalar(
+                    distance_func, bounds=bounds, method='bounded')
 
-                # If coarse minimum is somewhat close (e.g. within 50km), refine it
-                if min_dist < 50.0:
-                    def distance_func(t_offset_s):
-                        dt = now + timedelta(seconds=t_offset_s)
-                        dist, *_ = self._distance_at_time(satrec1, satrec2, dt)
-                        return dist
+                if res.success:
+                    refined_t_offset = res.x
+                    refined_dist, r1, v1, r2, v2, rel_vel = self._distance_at_time(
+                        satrec1, satrec2, now + timedelta(seconds=refined_t_offset))
 
-                    bounds = (max(0, min_t_offset - step_size_s),
-                              min_t_offset + step_size_s)
-                    res = minimize_scalar(
-                        distance_func, bounds=bounds, method='bounded')
+                    # Threshold Check
+                    if refined_dist <= miss_dist_threshold_km:
+                        # Conjunction detected!
+                        tca = now + timedelta(seconds=refined_t_offset)
 
-                    if res.success:
-                        refined_t_offset = res.x
-                        refined_dist, r1, v1, r2, v2, rel_vel = self._distance_at_time(
-                            satrec1, satrec2, now + timedelta(seconds=refined_t_offset))
+                        # Prob Engine Calculation
+                        # Conservative inputs for now as we use TLEs
+                        prob_result = ProbabilityEngine.calculate_probability(
+                            miss_distance_m=refined_dist * 1000,
+                            hbr_m=20.0
+                        )
+                        pc = prob_result["pc"]
+                        risk_level = ConjunctionEngine.classify_risk(
+                            pc, refined_dist * 1000)
 
-                        # Threshold Check
-                        if refined_dist <= miss_dist_threshold_km:
-                            # Conjunction detected!
-                            tca = now + timedelta(seconds=refined_t_offset)
+                        # Create Event
+                        event = ConjunctionEvent(
+                            primary_satellite=sat1_data["sat"].name,
+                            primary_norad_id=sat1_data["sat"].norad_id,
+                            secondary_object=sat2_data["sat"].name,
+                            secondary_norad_id=sat2_data["sat"].norad_id,
+                            tca=tca,
+                            miss_distance_m=refined_dist * 1000,
+                            relative_velocity_km_s=rel_vel,
+                            probability=pc,
+                            risk_level=risk_level,
+                            detected_by="Satguard SGP4",
+                            status="open"
+                        )
+                        self.db.add(event)
+                        await self.db.flush()  # flush to get event.id
 
-                            # Prob Engine Calculation
-                            # Conservative inputs for now as we use TLEs
-                            prob_result = ProbabilityEngine.calculate_probability(
-                                miss_distance_m=refined_dist * 1000,
-                                hbr_m=20.0
-                            )
-                            pc = prob_result["pc"]
-                            risk_level = ConjunctionEngine.classify_risk(
-                                pc, refined_dist * 1000)
+                        # Create Alert if Risk is Medium+
+                        if risk_level in ["medium", "high", "critical"]:
+                            await self.alert_service.create_alert_from_conjunction(event)
 
-                            # Create Event
-                            event = ConjunctionEvent(
-                                primary_satellite=sat1_data["sat"].name,
-                                primary_norad_id=sat1_data["sat"].norad_id,
-                                secondary_object=sat2_data["sat"].name,
-                                secondary_norad_id=sat2_data["sat"].norad_id,
-                                tca=tca,
-                                miss_distance_m=refined_dist * 1000,
-                                relative_velocity_km_s=rel_vel,
-                                probability=pc,
-                                risk_level=risk_level,
-                                detected_by="Satguard SGP4",
-                                status="open"
-                            )
-                            self.db.add(event)
-                            await self.db.flush()  # flush to get event.id
-
-                            # Create Alert if Risk is Medium+
-                            if risk_level in ["medium", "high", "critical"]:
-                                await self.alert_service.create_alert_from_conjunction(event)
-
-                            events_created += 1
+                        events_created += 1
 
         await self.db.commit()
         return events_created

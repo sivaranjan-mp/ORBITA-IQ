@@ -19,9 +19,34 @@ class TLEUploadRequest(BaseModel):
     raw_tle: str
 
 
-class OMMUploadRequest(BaseModel):
-    payload: dict
+class CCSDSOMM(BaseModel):
+    CCSDS_OMM_VERS: str = Field(..., description="OMM Version")
+    CREATION_DATE: str
+    ORIGINATOR: str
+    OBJECT_NAME: str
+    OBJECT_ID: str
+    CENTER_NAME: str
+    REF_FRAME: str
+    TIME_SYSTEM: str
+    MEAN_ELEMENT_THEORY: str
+    EPOCH: str
+    MEAN_MOTION: float
+    ECCENTRICITY: float
+    INCLINATION: float
+    RA_OF_ASC_NODE: float
+    ARG_OF_PERICENTER: float
+    MEAN_ANOMALY: float
+    EPHEMERIS_TYPE: int
+    CLASSIFICATION_TYPE: str
+    NORAD_CAT_ID: int
+    ELEMENT_SET_NO: int
+    REV_AT_EPOCH: int
+    BSTAR: float
+    MEAN_MOTION_DOT: float
+    MEAN_MOTION_DDOT: float
 
+class OMMUploadRequest(BaseModel):
+    payload: CCSDSOMM
 
 class SatelliteResponse(BaseModel):
     id: str

@@ -86,6 +86,8 @@ async def add_satellite_by_norad(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can add satellites")
     service = SatelliteService(db)
     try:
         sat = await service.add_satellite_by_norad(request.norad_id, owner_org=current_user.employee_id)
@@ -106,6 +108,8 @@ async def add_satellites_by_norad_bulk(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can add satellites")
     service = SatelliteService(db)
     
     successful = 0
@@ -160,6 +164,8 @@ async def update_satellite(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can update satellites")
     service = SatelliteService(db)
     try:
         sat = await service.update_satellite(id, request)
@@ -191,6 +197,8 @@ async def upload_tle(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can upload TLEs")
     service = SatelliteService(db)
     try:
         sat = await service.upload_tle(request.norad_id, request.raw_tle)
@@ -205,9 +213,11 @@ async def upload_omm(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can upload OMMs")
     service = SatelliteService(db)
     try:
-        sat = await service.upload_omm(request.payload)
+        sat = await service.upload_omm(request.payload.model_dump())
         return {"message": "OMM payload uploaded successfully", "id": str(sat.id)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -27,21 +27,20 @@ satellite-ops-dashboard/
 ├── apps/
 │   ├── frontend/                                # React + TS + Vite
 │   │   ├── src/
-│   │   │   ├── components/{ui,layout,auth,satellites,uploads,
-│   │   │   │   monitoring,conjunctions,collision-probability,orbit-viewer,shared}/
-│   │   │   ├── features/{auth,satellites,tle-omm-cdm,conjunctions,
-│   │   │   │   collision-probability,orbit-visualization}/
-│   │   │   ├── hooks/ lib/ pages/ routes/ store/ types/ utils/
+│   │   │   ├── components/{ui,layout,auth,satellites,dashboard,
+│   │   │   │   alerts,conjunctions,orbit,settings,routes}/
+│   │   │   ├── hooks/ lib/ pages/ routes/ types/ context/
 │   │   │   └── App.tsx main.tsx
 │   │   └── vite.config.ts
 │   └── backend/                                  # FastAPI + Python
 │       ├── app/
-│       │   ├── api/v1/endpoints/{auth,users,satellites,tle,omm,cdm,
-│       │   │   conjunctions,collision_probability,monitoring,orbit,admin}.py
+│       │   ├── api/v1/endpoints/{auth,users,satellites,omm,cdm,
+│       │   │   conjunctions,alerts,dashboard,orbit,orbit_ws}.py
 │       │   ├── core/ services/{celestrak_service,sgp4_service,
 │       │   │   satguard_service,conjunction_engine,probability_engine,
-│       │   │   tle_parser,omm_parser,cdm_parser}.py
-│       │   ├── models/ schemas/ repositories/ workers/ websockets/
+│       │   │   tle_parser,omm_parser,cdm_parser,auth_service,satellite_service,
+│       │   │   alert_service,conjunction_service,orbit_scheduler,risk_explanation_engine}.py
+│       │   ├── models/ schemas/ repositories/
 │       │   └── main.py
 │       └── requirements.txt
 ├── infra/{docker-compose.yml, supabase/, k8s/}

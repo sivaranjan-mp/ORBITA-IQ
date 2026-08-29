@@ -31,6 +31,9 @@ async def test_scheduler_survives_malformed_tle():
             # For simplicity, if we need to return sat2 on the second call, let's just 
             # return sat2 (since sat1 fails early and never triggers FOR UPDATE).
             mock_res.scalar_one_or_none.return_value = sat2
+            mock_scalars = MagicMock()
+            mock_scalars.all.return_value = [sat2]
+            mock_res.scalars.return_value = mock_scalars
         return mock_res
         
     mock_db.execute.side_effect = mock_execute
