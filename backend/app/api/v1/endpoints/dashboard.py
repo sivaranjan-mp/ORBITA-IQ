@@ -9,6 +9,7 @@ from app.dependencies import get_current_user
 from app.schemas.auth import UserProfile
 from app.models.satellites import Satellite
 from app.models.alerts import Alert
+from app.models.enums import AlertState, RiskLevel
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -23,10 +24,10 @@ async def get_dashboard(
     sat_count_result = await db.execute(select(func.count(Satellite.id)))
     sat_count = sat_count_result.scalar() or 0
 
-    active_alerts_result = await db.execute(select(func.count(Alert.id)).where(Alert.status == 'active'))
+    active_alerts_result = await db.execute(select(func.count(Alert.id)).where(Alert.status == AlertState.ACTIVE))
     active_alerts = active_alerts_result.scalar() or 0
 
-    high_risk_alerts_result = await db.execute(select(func.count(Alert.id)).where(Alert.risk_level.in_(['high', 'critical'])))
+    high_risk_alerts_result = await db.execute(select(func.count(Alert.id)).where(Alert.risk_level.in_([RiskLevel.HIGH, RiskLevel.CRITICAL])))
     high_risk_alerts = high_risk_alerts_result.scalar() or 0
 
     next_alert_result = await db.execute(

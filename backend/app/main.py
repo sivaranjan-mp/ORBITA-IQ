@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,12 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.services.orbit_scheduler import init_scheduler, shutdown_scheduler
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -42,8 +49,7 @@ app.include_router(api_router)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    import logging
-    logging.getLogger(__name__).exception(f"Unhandled exception during {request.method} {request.url}: {exc}")
+    logger.exception(f"Unhandled exception during {request.method} {request.url}: {exc}")
     
     # We must include CORS headers in custom exception responses, 
     # otherwise the browser blocks the response and hides the 500 status.

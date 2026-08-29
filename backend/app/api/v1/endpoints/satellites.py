@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
-from sqlalchemy.ext.asyncio import AsyncSession
 import asyncio
+import logging
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.schemas.auth import UserProfile
@@ -17,6 +18,8 @@ from app.schemas.satellites import (
 )
 from app.services.satellite_service import SatelliteService
 from app.models.satellites import Satellite
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/satellites", tags=["satellites"])
 
@@ -98,8 +101,7 @@ async def add_satellite_by_norad(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Unhandled exception while adding satellite by NORAD ID {request.norad_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -141,6 +143,7 @@ async def add_satellites_by_norad_bulk(
                 reason=str(e.detail)
             ))
         except Exception as e:
+            logger.exception(f"Unhandled exception while bulk adding satellite by NORAD ID {norad_id}: {e}")
             failed += 1
             results.append(SatelliteBulkAddResult(
                 norad_id=norad_id,
