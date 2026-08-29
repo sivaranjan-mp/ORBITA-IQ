@@ -123,16 +123,17 @@ export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProp
           // const p = computeSubSatellitePoint(sat, new Date());
           // return Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters);
 
-          // --- New: Real-time from backend WS ---
+          // --- Real-time from backend WS ---
           const p = livePositionsRef.current[sat.id];
           if (p) {
              return Cesium.Cartesian3.fromDegrees(p.lon, p.lat, p.alt);
           }
-          // Fallback to static point from initial API payload
-          const fallbackLon = sat.longitudeDeg || 0;
-          const fallbackLat = sat.latitudeDeg || 0;
-          const fallbackAlt = (sat.altitudeKm || 0) * 1000;
-          return Cesium.Cartesian3.fromDegrees(fallbackLon, fallbackLat, fallbackAlt);
+          // Static point from initial API payload (only if real orbital data exists)
+          if (sat.longitudeDeg != null && sat.latitudeDeg != null && sat.altitudeKm != null) {
+            return Cesium.Cartesian3.fromDegrees(sat.longitudeDeg, sat.latitudeDeg, sat.altitudeKm * 1000);
+          }
+          // No orbital data: skip plotting fabricated position
+          return undefined as unknown as Cesium.Cartesian3;
         }, false),
         point: {
           pixelSize: 8,

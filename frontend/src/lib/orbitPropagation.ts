@@ -5,27 +5,38 @@ const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
 
 /**
+ * Checks whether a satellite has complete orbital element data for propagation.
+ */
+export function hasOrbitalData(satellite: Satellite): boolean {
+  return (
+    satellite.altitudeKm != null &&
+    satellite.periodMinutes != null &&
+    satellite.periodMinutes > 0 &&
+    satellite.inclinationDeg != null &&
+    satellite.raanDeg != null &&
+    satellite.meanAnomalyDeg != null
+  );
+}
+
+/**
  * Simplified circular-orbit ground-track model for visualization only.
- *
- * This is intentionally NOT SGP4 — real propagation belongs server-side
- * (see the `sgp4_service` in the backend architecture, driven by TLE/OMM
- * data from CelesTrak). This client-side model just needs to look and
- * move like a real satellite: it rotates the orbital plane by
- * inclination + RAAN, advances the argument of latitude over time by the
- * orbital period, and accounts for Earth's rotation underneath the orbit
- * so ground tracks drift westward the way real ones do.
+ * Returns null if the satellite has no valid orbit_state data.
  */
 export function computeSubSatellitePoint(
   satellite: Satellite,
   date: Date
-): { latitudeDeg: number; longitudeDeg: number; heightMeters: number } {
+): { latitudeDeg: number; longitudeDeg: number; heightMeters: number } | null {
+  if (!hasOrbitalData(satellite)) {
+    return null;
+  }
+
   const minutesSinceEpoch = date.getTime() / 60_000;
 
-  const meanAnomaly = satellite.meanAnomalyDeg ?? 0;
-  const period = satellite.periodMinutes || 90;
-  const inclination = satellite.inclinationDeg ?? 0;
-  const raan = satellite.raanDeg ?? 0;
-  const altitude = satellite.altitudeKm ?? 0;
+  const meanAnomaly = satellite.meanAnomalyDeg!;
+  const period = satellite.periodMinutes!;
+  const inclination = satellite.inclinationDeg!;
+  const raan = satellite.raanDeg!;
+  const altitude = satellite.altitudeKm!;
 
   const u = (meanAnomaly + (360 / period) * minutesSinceEpoch) % 360;
   const uRad = u * DEG;
@@ -61,17 +72,25 @@ export function computeSubSatellitePoint(
   };
 }
 
-/** Samples one full orbit's ground track for drawing a predicted path line. */
+/** Samples one full orbit's ground track for drawing a predicted path line. Returns empty array if no orbital data. */
 export function sampleGroundTrack(satellite: Satellite, fromDate: Date, samples = 90) {
+  if (!hasOrbitalData(satellite)) {
+    return [];
+  }
+
   const points: Array<{ latitudeDeg: number; longitudeDeg: number; heightMeters: number }> = [];
-  const periodMs = (satellite.periodMinutes || 90) * 60_000;
+  const periodMs = satellite.periodMinutes! * 60_000;
   for (let i = 0; i <= samples; i++) {
     const t = new Date(fromDate.getTime() + (periodMs * i) / samples);
-    points.push(computeSubSatellitePoint(satellite, t));
+    const pt = computeSubSatellitePoint(satellite, t);
+    if (pt) {
+      points.push(pt);
+    }
   }
   return points;
 }
 
-export function orbitalRadiusKm(satellite: Satellite): number {
-  return EARTH_RADIUS_KM + (satellite.altitudeKm ?? 0);
+export function orbitalRadiusKm(satellite: Satellite): number | null {
+  if (satellite.altitudeKm == null) return null;
+  return EARTH_RADIUS_KM + satellite.altitudeKm;
 }
