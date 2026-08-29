@@ -118,11 +118,7 @@ export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProp
       viewer.entities.add({
         id: sat.id,
         name: sat.name,
-        position: new Cesium.CallbackPositionProperty(() => {
-          // --- Feature Flagged: Client-side propagation ---
-          // const p = computeSubSatellitePoint(sat, new Date());
-          // return Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters);
-
+        position: new Cesium.CallbackPositionProperty((): Cesium.Cartesian3 | undefined => {
           // --- Real-time from backend WS ---
           const p = livePositionsRef.current[sat.id];
           if (p) {
@@ -133,7 +129,7 @@ export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProp
             return Cesium.Cartesian3.fromDegrees(sat.longitudeDeg, sat.latitudeDeg, sat.altitudeKm * 1000);
           }
           // No orbital data: skip plotting fabricated position
-          return undefined as unknown as Cesium.Cartesian3;
+          return undefined;
         }, false),
         point: {
           pixelSize: 8,
