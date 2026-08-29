@@ -1,11 +1,12 @@
 from sqlalchemy import Integer, String, Float, DateTime, ForeignKey, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List
 
 from app.db.session import Base
+from app.models.enums import SatelliteStatus, ObjectType
 
 
 class Satellite(Base):
@@ -19,8 +20,13 @@ class Satellite(Base):
     international_designator: Mapped[Optional[str]
                                      ] = mapped_column(String, nullable=True)
     object_type: Mapped[Optional[str]] = mapped_column(
-        String, default="payload")
-    status: Mapped[Optional[str]] = mapped_column(String, default="active")
+        ENUM(ObjectType, name="object_type", create_type=False, values_callable=lambda x: [e.value for e in x]),
+        default="payload"
+    )
+    status: Mapped[Optional[str]] = mapped_column(
+        ENUM(SatelliteStatus, name="satellite_status", create_type=False, values_callable=lambda x: [e.value for e in x]),
+        default="active"
+    )
     owner_org: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

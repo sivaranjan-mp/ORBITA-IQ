@@ -56,13 +56,13 @@ class SatelliteResponse(BaseModel):
     objectType: str
     status: str
     ownerOrg: str
-    altitudeKm: float
-    inclinationDeg: float
-    periodMinutes: float
-    eccentricity: float
-    lastTleEpoch: datetime
-    raanDeg: float
-    meanAnomalyDeg: float
+    altitudeKm: Optional[float] = None
+    inclinationDeg: Optional[float] = None
+    periodMinutes: Optional[float] = None
+    eccentricity: Optional[float] = None
+    lastTleEpoch: Optional[datetime] = None
+    raanDeg: Optional[float] = None
+    meanAnomalyDeg: Optional[float] = None
 
 
 class SatelliteBulkAddRequest(BaseModel):

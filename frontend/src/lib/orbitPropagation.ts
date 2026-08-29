@@ -21,11 +21,16 @@ export function computeSubSatellitePoint(
 ): { latitudeDeg: number; longitudeDeg: number; heightMeters: number } {
   const minutesSinceEpoch = date.getTime() / 60_000;
 
-  const u =
-    (satellite.meanAnomalyDeg + (360 / satellite.periodMinutes) * minutesSinceEpoch) % 360;
+  const meanAnomaly = satellite.meanAnomalyDeg ?? 0;
+  const period = satellite.periodMinutes || 90;
+  const inclination = satellite.inclinationDeg ?? 0;
+  const raan = satellite.raanDeg ?? 0;
+  const altitude = satellite.altitudeKm ?? 0;
+
+  const u = (meanAnomaly + (360 / period) * minutesSinceEpoch) % 360;
   const uRad = u * DEG;
-  const iRad = satellite.inclinationDeg * DEG;
-  const raanRad = satellite.raanDeg * DEG;
+  const iRad = inclination * DEG;
+  const raanRad = raan * DEG;
 
   // Position in the orbital plane, rotated by inclination about the node line.
   const x = Math.cos(uRad);
@@ -52,14 +57,14 @@ export function computeSubSatellitePoint(
   return {
     latitudeDeg,
     longitudeDeg,
-    heightMeters: satellite.altitudeKm * 1000,
+    heightMeters: altitude * 1000,
   };
 }
 
 /** Samples one full orbit's ground track for drawing a predicted path line. */
 export function sampleGroundTrack(satellite: Satellite, fromDate: Date, samples = 90) {
   const points: Array<{ latitudeDeg: number; longitudeDeg: number; heightMeters: number }> = [];
-  const periodMs = satellite.periodMinutes * 60_000;
+  const periodMs = (satellite.periodMinutes || 90) * 60_000;
   for (let i = 0; i <= samples; i++) {
     const t = new Date(fromDate.getTime() + (periodMs * i) / samples);
     points.push(computeSubSatellitePoint(satellite, t));
@@ -68,5 +73,5 @@ export function sampleGroundTrack(satellite: Satellite, fromDate: Date, samples 
 }
 
 export function orbitalRadiusKm(satellite: Satellite): number {
-  return EARTH_RADIUS_KM + satellite.altitudeKm;
+  return EARTH_RADIUS_KM + (satellite.altitudeKm ?? 0);
 }

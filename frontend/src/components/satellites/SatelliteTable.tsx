@@ -89,7 +89,7 @@ export function SatelliteTable({ showOwner = false, scope = "mine" }: SatelliteT
                     </TableCell>
                   )}
                   <TableCell className="text-right font-mono text-xs">
-                    {sat.altitudeKm.toLocaleString()} km
+                    {sat.altitudeKm != null ? `${sat.altitudeKm.toLocaleString()} km` : "N/A"}
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs">
                     {sat.latitudeDeg?.toFixed(2)}°

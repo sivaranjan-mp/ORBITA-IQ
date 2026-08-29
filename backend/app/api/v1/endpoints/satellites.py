@@ -30,12 +30,13 @@ def _format_satellite_response(sat: Satellite) -> dict:
         "objectType": sat.object_type,
         "status": sat.status,
         "ownerOrg": sat.owner_org or "Unknown",
-        "altitudeKm": 0.0,
-        "inclinationDeg": 0.0,
-        "periodMinutes": 0.0,
-        "eccentricity": 0.0,
-        "raanDeg": 0.0,
-        "meanAnomalyDeg": 0.0,
+        "altitudeKm": None,
+        "inclinationDeg": None,
+        "periodMinutes": None,
+        "eccentricity": None,
+        "lastTleEpoch": None,
+        "raanDeg": None,
+        "meanAnomalyDeg": None,
     }
 
     if sat.orbit_state:

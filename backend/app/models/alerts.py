@@ -1,11 +1,12 @@
 from sqlalchemy import String, Float, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
 from app.db.session import Base
+from app.models.enums import AlertState, RiskLevel
 
 if TYPE_CHECKING:
     from app.models.satellites import Satellite
@@ -28,9 +29,15 @@ class Alert(Base):
                               ] = mapped_column(Float, nullable=True)
     time_of_closest_approach: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False)
-    risk_level: Mapped[str] = mapped_column(String, nullable=False)
+    risk_level: Mapped[str] = mapped_column(
+        ENUM(RiskLevel, name="risk_level", create_type=False, values_callable=lambda x: [e.value for e in x]),
+        nullable=False
+    )
     status: Mapped[str] = mapped_column(
-        String, nullable=False, default='active')
+        ENUM(AlertState, name="alert_state", create_type=False, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default="active"
+    )
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(
@@ -53,7 +60,10 @@ class AlertHistory(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     alert_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('alerts.id', ondelete='CASCADE'), nullable=False)
-    risk_level: Mapped[str] = mapped_column(String, nullable=False)
+    risk_level: Mapped[str] = mapped_column(
+        ENUM(RiskLevel, name="risk_level", create_type=False, values_callable=lambda x: [e.value for e in x]),
+        nullable=False
+    )
     miss_distance: Mapped[float] = mapped_column(Float, nullable=False)
     relative_velocity: Mapped[Optional[float]
                               ] = mapped_column(Float, nullable=True)

@@ -52,7 +52,7 @@ export function SatelliteTrackList({
                 </div>
               </div>
               <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                {sat.altitudeKm} km
+                {sat.altitudeKm != null ? `${sat.altitudeKm} km` : "N/A"}
               </span>
             </button>
           ))}
