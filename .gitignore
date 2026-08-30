@@ -17,3 +17,6 @@ __pycache__/
 
 # MS Office Temp
 ~$*
+
+# Archives / Bundles
+*.zip
