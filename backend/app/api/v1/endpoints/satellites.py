@@ -90,8 +90,8 @@ async def add_satellite_by_norad(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Only admins can add satellites")
+    if current_user.role not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
     service = SatelliteService(db)
     try:
         sat = await service.add_satellite_by_norad(request.norad_id, owner_org=current_user.employee_id)
@@ -111,8 +111,8 @@ async def add_satellites_by_norad_bulk(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Only admins can add satellites")
+    if current_user.role not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
     service = SatelliteService(db)
     
     successful = 0
