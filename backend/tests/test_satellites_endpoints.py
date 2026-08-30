@@ -1,4 +1,6 @@
 import pytest
+import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,7 @@ from app.dependencies import get_current_user
 from app.db.session import get_db
 from app.schemas.auth import UserProfile
 from app.models.satellites import Satellite, OrbitState, TLERecord
+from app.services.satellite_service import SatelliteService
 from app.api.v1.endpoints.satellites import _format_satellite_response
 
 client = TestClient(app)
@@ -33,6 +36,13 @@ def test_add_satellite_by_norad_mock():
     
     mock_res = MagicMock()
     mock_res.scalar_one_or_none.return_value = None
+    mock_res.scalar_one.return_value = Satellite(
+        id=uuid.uuid4(),
+        norad_id=25544,
+        name="ISS (ZARYA)",
+        object_type="payload",
+        status="active"
+    )
     mock_db.execute.return_value = mock_res
     
     app.dependency_overrides[get_db] = lambda: mock_db
@@ -59,6 +69,13 @@ def test_add_satellite_manual_success():
     mock_db.add = MagicMock()
     mock_res = MagicMock()
     mock_res.scalar_one_or_none.return_value = None
+    mock_res.scalar_one.return_value = Satellite(
+        id=uuid.uuid4(),
+        norad_id=25544,
+        name="ISS (ZARYA)",
+        object_type="payload",
+        status="active"
+    )
     mock_db.execute.return_value = mock_res
     app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -93,3 +110,59 @@ def test_add_satellite_manual_unauthenticated():
     sample_tle = "ISS (ZARYA)\n1 25544U 98067A   24080.52843444  .00015525  00000-0  27827-3 0  9993\n2 25544  51.6416 261.2435 0005436 127.3562 334.8519 15.49887756444585"
     response = client.post("/api/v1/satellites/manual", json={"raw_tle": sample_tle})
     assert response.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_add_satellite_from_tle_regression_orbit_state_access():
+    """
+    Regression test: ensures add_satellite_from_tle re-fetches and returns a
+    Satellite object with .orbit_state accessible (preventing 'greenlet_spawn has
+    not been called' during _format_satellite_response or subsequent relationship reads).
+    """
+    sample_tle = (
+        "ISS (ZARYA)\n"
+        "1 25544U 98067A   24080.52843444  .00015525  00000-0  27827-3 0  9993\n"
+        "2 25544  51.6416 261.2435 0005436 127.3562 334.8519 15.49887756444585"
+    )
+
+    mock_db = AsyncMock()
+    mock_db.add = MagicMock()
+
+    expected_sat = Satellite(
+        id=uuid.uuid4(),
+        norad_id=25544,
+        name="ISS (ZARYA)",
+        international_designator="98067A",
+        object_type="payload",
+        status="active",
+        owner_org="EMP-0001"
+    )
+    expected_sat.orbit_state = OrbitState(
+        altitude_km=420.0,
+        inclination_deg=51.64,
+        period_minutes=92.5,
+        eccentricity=0.0005,
+        raan_deg=261.24,
+        mean_anomaly_deg=334.85,
+        epoch=datetime.now(timezone.utc)
+    )
+
+    res1 = MagicMock()
+    res1.scalar_one_or_none.return_value = None
+    res2 = MagicMock()
+    res2.scalar_one.return_value = expected_sat
+
+    mock_db.execute.side_effect = [res1, res2]
+
+    service = SatelliteService(mock_db)
+    sat = await service.add_satellite_from_tle(sample_tle, owner_org="EMP-0001")
+
+    # Assert orbit_state is loaded and accessible directly
+    assert sat.orbit_state is not None
+    assert sat.orbit_state.altitude_km == 420.0
+
+    # Assert _format_satellite_response operates smoothly without async lazy load errors
+    formatted = _format_satellite_response(sat)
+    assert formatted["noradId"] == 25544
+    assert formatted["altitudeKm"] == 420.0
+    assert formatted["name"] == "ISS (ZARYA)"

@@ -103,7 +103,9 @@ async def test_satellite_service_create_and_update():
     
     mock_res_none = MagicMock()
     mock_res_none.scalar_one_or_none.return_value = None
-    mock_session.execute.return_value = mock_res_none
+    mock_res_created = MagicMock()
+    mock_res_created.scalar_one.return_value = mock_sat
+    mock_session.execute.side_effect = [mock_res_none, mock_res_created]
     
     service = SatelliteService(mock_session)
     
@@ -119,7 +121,9 @@ async def test_satellite_service_create_and_update():
     # Test update
     mock_res_sat = MagicMock()
     mock_res_sat.scalar_one_or_none.return_value = mock_sat
-    mock_session.execute.return_value = mock_res_sat
+    mock_res_updated = MagicMock()
+    mock_res_updated.scalar_one.return_value = mock_sat
+    mock_session.execute.side_effect = [mock_res_sat, mock_res_updated]
     
     updated = await service.update_satellite(str(sat_id), SatelliteUpdateRequest(status="degraded"))
     assert updated.status == "degraded"

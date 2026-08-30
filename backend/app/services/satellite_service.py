@@ -15,7 +15,10 @@ class SatelliteService:
         self.session = session
 
     async def get_all_satellites(self, owner_org: Optional[str] = None) -> List[Satellite]:
-        stmt = select(Satellite).options(selectinload(Satellite.orbit_state))
+        stmt = select(Satellite).options(
+            selectinload(Satellite.orbit_state),
+            selectinload(Satellite.tle_records)
+        )
         if owner_org:
             stmt = stmt.where(Satellite.owner_org == owner_org)
         result = await self.session.execute(stmt)
@@ -23,13 +26,17 @@ class SatelliteService:
 
     async def get_satellite_by_id(self, sat_id: str) -> Optional[Satellite]:
         stmt = select(Satellite).where(Satellite.id == sat_id).options(
-            selectinload(Satellite.orbit_state))
+            selectinload(Satellite.orbit_state),
+            selectinload(Satellite.tle_records)
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_satellite_by_norad(self, norad_id: int) -> Optional[Satellite]:
         stmt = select(Satellite).where(Satellite.norad_id == norad_id).options(
-            selectinload(Satellite.orbit_state))
+            selectinload(Satellite.orbit_state),
+            selectinload(Satellite.tle_records)
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -71,8 +78,12 @@ class SatelliteService:
 
         self.session.add(sat)
         await self.session.commit()
-        await self.session.refresh(sat)
-        return sat
+        result = await self.session.execute(
+            select(Satellite)
+            .where(Satellite.id == sat.id)
+            .options(selectinload(Satellite.orbit_state), selectinload(Satellite.tle_records))
+        )
+        return result.scalar_one()
 
     async def add_satellite_from_tle(self, raw_tle: str, owner_org: str = "Unknown") -> Satellite:
         parsed = parse_tle(raw_tle)
@@ -112,8 +123,12 @@ class SatelliteService:
 
         self.session.add(sat)
         await self.session.commit()
-        await self.session.refresh(sat)
-        return sat
+        result = await self.session.execute(
+            select(Satellite)
+            .where(Satellite.id == sat.id)
+            .options(selectinload(Satellite.orbit_state), selectinload(Satellite.tle_records))
+        )
+        return result.scalar_one()
 
     async def update_satellite(self, sat_id: str, updates: SatelliteUpdateRequest) -> Satellite:
         sat = await self.get_satellite_by_id(sat_id)
@@ -128,8 +143,12 @@ class SatelliteService:
             sat.status = updates.status
 
         await self.session.commit()
-        await self.session.refresh(sat)
-        return sat
+        result = await self.session.execute(
+            select(Satellite)
+            .where(Satellite.id == sat.id)
+            .options(selectinload(Satellite.orbit_state), selectinload(Satellite.tle_records))
+        )
+        return result.scalar_one()
 
     async def delete_satellite(self, sat_id: str) -> bool:
         sat = await self.get_satellite_by_id(sat_id)
@@ -165,8 +184,12 @@ class SatelliteService:
             sat.orbit_state.epoch = parsed["epoch"]
 
         await self.session.commit()
-        await self.session.refresh(sat)
-        return sat
+        result = await self.session.execute(
+            select(Satellite)
+            .where(Satellite.id == sat.id)
+            .options(selectinload(Satellite.orbit_state), selectinload(Satellite.tle_records))
+        )
+        return result.scalar_one()
 
     async def upload_omm(self, payload: dict) -> Satellite:
         parsed = parse_omm_json(payload)
@@ -187,5 +210,13 @@ class SatelliteService:
 
         # In a real app we'd also parse the OMM state to update orbit_state
         await self.session.commit()
-        await self.session.refresh(sat)
-        return sat
+        result = await self.session.execute(
+            select(Satellite)
+            .where(Satellite.id == sat.id)
+            .options(
+                selectinload(Satellite.orbit_state),
+                selectinload(Satellite.tle_records),
+                selectinload(Satellite.omm_records)
+            )
+        )
+        return result.scalar_one()
