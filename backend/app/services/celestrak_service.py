@@ -13,7 +13,9 @@ async def fetch_tle_by_norad_id(norad_id: int, max_retries: int = 3) -> str:
     """
     url = f"{CELESTRAK_BASE_URL}?CATNR={norad_id}&FORMAT=tle"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(
+        headers={"User-Agent": "Mozilla/5.0 (compatible; ORBITA-IQ/1.0)"}
+    ) as client:
         for attempt in range(max_retries):
             try:
                 response = await client.get(url, timeout=10.0)

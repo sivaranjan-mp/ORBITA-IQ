@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from typing import List
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -55,6 +56,30 @@ def _format_satellite_response(sat: Satellite) -> dict:
     return resp
 
 
+@router.get("/debug/celestrak")
+async def debug_celestrak(norad_id: int = 25544):
+    """
+    Temporary debug endpoint to test CelesTrak connection directly and in isolation.
+    """
+    url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={norad_id}&FORMAT=tle"
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; ORBITA-IQ/1.0)"}
+    try:
+        async with httpx.AsyncClient(headers=headers) as client:
+            response = await client.get(url, timeout=10.0)
+            return {
+                "status_code": response.status_code,
+                "headers": dict(response.headers),
+                "text_snippet": response.text[:300],
+                "url": url
+            }
+    except Exception as exc:
+        return {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "url": url
+        }
+
+
 @router.get("", response_model=List[SatelliteResponse])
 async def list_satellites(
     scope: str = "mine",
@@ -98,7 +123,8 @@ async def add_satellite_by_norad(
         return _format_satellite_response(sat)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
+    except HTTPException as e:
+        logger.warning(f"HTTPException while adding satellite {request.norad_id}: {e.status_code} - {e.detail}")
         raise
     except Exception as e:
         logger.exception(f"Unhandled exception while adding satellite by NORAD ID {request.norad_id}: {e}")
