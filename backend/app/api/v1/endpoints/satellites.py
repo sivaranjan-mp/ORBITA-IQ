@@ -9,6 +9,7 @@ from app.dependencies import get_current_user
 from app.schemas.auth import UserProfile
 from app.schemas.satellites import (
     SatelliteAddRequest,
+    SatelliteAddFromTLERequest,
     SatelliteResponse,
     SatelliteUpdateRequest,
     TLEUploadRequest,
@@ -128,6 +129,28 @@ async def add_satellite_by_norad(
         raise
     except Exception as e:
         logger.exception(f"Unhandled exception while adding satellite by NORAD ID {request.norad_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/manual", response_model=SatelliteResponse)
+async def add_satellite_manual(
+    request: SatelliteAddFromTLERequest,
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if current_user.role not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    service = SatelliteService(db)
+    try:
+        sat = await service.add_satellite_from_tle(request.raw_tle, owner_org=current_user.employee_id)
+        return _format_satellite_response(sat)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException as e:
+        logger.warning(f"HTTPException while adding satellite from TLE: {e.status_code} - {e.detail}")
+        raise
+    except Exception as e:
+        logger.exception(f"Unhandled exception while adding satellite from TLE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

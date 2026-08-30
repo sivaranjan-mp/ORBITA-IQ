@@ -8,6 +8,11 @@ class SatelliteAddRequest(BaseModel):
                           description="The NORAD ID (CATNR) of the satellite to add")
 
 
+class SatelliteAddFromTLERequest(BaseModel):
+    raw_tle: str = Field(...,
+                         description="Raw 2-line or 3-line TLE string for the satellite")
+
+
 class SatelliteUpdateRequest(BaseModel):
     name: Optional[str] = None
     ownerOrg: Optional[str] = None

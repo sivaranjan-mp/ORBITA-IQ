@@ -20,6 +20,7 @@ import { apiClient } from "@/lib/apiClient";
 export function AddSatelliteDialog() {
   const [open, setOpen] = useState(false);
   const [noradId, setNoradId] = useState("");
+  const [rawTle, setRawTle] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Bulk state
@@ -31,6 +32,7 @@ export function AddSatelliteDialog() {
     setOpen(newOpen);
     if (!newOpen) {
       setNoradId("");
+      setRawTle("");
       setBulkNoradIds("");
       setBulkResults(null);
     }
@@ -45,8 +47,28 @@ export function AddSatelliteDialog() {
       setOpen(false);
       setNoradId("");
       window.location.reload();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to add satellite:", error);
+      const msg = error.response?.data?.detail || "Failed to add satellite. Check console or try manual TLE paste.";
+      alert(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleTleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    
+    try {
+      await apiClient.post("/satellites/manual", { raw_tle: rawTle.trim() });
+      setOpen(false);
+      setRawTle("");
+      window.location.reload();
+    } catch (error: any) {
+      console.error("Failed to add satellite from TLE:", error);
+      const msg = error.response?.data?.detail || "Failed to add satellite from TLE. Please check the TLE format.";
+      alert(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -93,14 +115,15 @@ export function AddSatelliteDialog() {
         <DialogHeader>
           <DialogTitle>Add Satellite(s)</DialogTitle>
           <DialogDescription>
-            Fetch the latest TLE / OMM from CelesTrak and begin tracking.
+            Track via NORAD ID (CelesTrak) or paste TLE data directly.
           </DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="single">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="single">Single</TabsTrigger>
-            <TabsTrigger value="bulk">Bulk (Multiple)</TabsTrigger>
+            <TabsTrigger value="bulk">Bulk</TabsTrigger>
+            <TabsTrigger value="tle">Paste TLE</TabsTrigger>
           </TabsList>
 
           <TabsContent value="single">
@@ -163,6 +186,32 @@ export function AddSatelliteDialog() {
                     Track satellites
                   </Button>
                 )}
+              </DialogFooter>
+            </form>
+          </TabsContent>
+
+          <TabsContent value="tle">
+            <form onSubmit={handleTleSubmit} className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label htmlFor="raw_tle">Two-Line / Three-Line Element Set (TLE)</Label>
+                <Textarea
+                  id="raw_tle"
+                  placeholder={"ISS (ZARYA)\n1 25544U 98067A   24001.50000000  .00016717  00000-0  10270-3 0  9001\n2 25544  51.6400 208.5000 0005000  50.0000 310.0000 15.50000000430001"}
+                  value={rawTle}
+                  onChange={(e) => setRawTle(e.target.value)}
+                  required
+                  rows={6}
+                  className="font-mono text-xs"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Paste raw 2-line or 3-line TLE data. Bypasses external network calls.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button type="submit" disabled={isSubmitting || !rawTle.trim()}>
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Create from TLE
+                </Button>
               </DialogFooter>
             </form>
           </TabsContent>

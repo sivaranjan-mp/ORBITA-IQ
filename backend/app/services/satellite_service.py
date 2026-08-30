@@ -74,6 +74,47 @@ class SatelliteService:
         await self.session.refresh(sat)
         return sat
 
+    async def add_satellite_from_tle(self, raw_tle: str, owner_org: str = "Unknown") -> Satellite:
+        parsed = parse_tle(raw_tle)
+        norad_id = parsed["norad_id"]
+
+        existing = await self.get_satellite_by_norad(norad_id)
+        if existing:
+            return existing
+
+        sat = Satellite(
+            norad_id=norad_id,
+            name=parsed["name"],
+            international_designator=parsed["international_designator"],
+            object_type="payload",
+            status="active",
+            owner_org=owner_org
+        )
+
+        orbit = OrbitState(
+            altitude_km=parsed["altitudeKm"],
+            inclination_deg=parsed["inclinationDeg"],
+            period_minutes=parsed["periodMinutes"],
+            eccentricity=parsed["eccentricity"],
+            raan_deg=parsed["raanDeg"],
+            mean_anomaly_deg=parsed["meanAnomalyDeg"],
+            epoch=parsed["epoch"]
+        )
+        sat.orbit_state = orbit
+
+        tle = TLERecord(
+            line1=parsed["line1"],
+            line2=parsed["line2"],
+            source="manual_upload",
+            epoch=parsed["epoch"]
+        )
+        sat.tle_records.append(tle)
+
+        self.session.add(sat)
+        await self.session.commit()
+        await self.session.refresh(sat)
+        return sat
+
     async def update_satellite(self, sat_id: str, updates: SatelliteUpdateRequest) -> Satellite:
         sat = await self.get_satellite_by_id(sat_id)
         if not sat:
