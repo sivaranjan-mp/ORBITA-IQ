@@ -1,6 +1,7 @@
 import math
 from datetime import datetime, timedelta, timezone
 from sgp4.api import Satrec
+from app.services.sgp4_service import propagate_tle
 
 
 def parse_tle(raw_tle: str) -> dict:
@@ -43,6 +44,15 @@ def parse_tle(raw_tle: str) -> dict:
     else:
         altitude_km = 0
 
+    # Compute geodetic position (lat, lon, vel) at current time (or epoch fallback)
+    now_utc = datetime.now(timezone.utc)
+    prop_state = propagate_tle(line1, line2, now_utc) or propagate_tle(line1, line2, epoch_ts)
+    lat_deg = prop_state["latitude_deg"] if prop_state else 0.0
+    lon_deg = prop_state["longitude_deg"] if prop_state else 0.0
+    vel_km_s = prop_state["velocity_km_s"] if prop_state else 0.0
+    if prop_state and prop_state.get("altitude_km") is not None:
+        altitude_km = prop_state["altitude_km"]
+
     return {
         "name": name,
         "line1": line1,
@@ -55,5 +65,8 @@ def parse_tle(raw_tle: str) -> dict:
         "eccentricity": sat.ecco,
         "periodMinutes": period_minutes,
         "meanAnomalyDeg": math.degrees(sat.mo),
-        "altitudeKm": altitude_km
+        "altitudeKm": altitude_km,
+        "latitudeDeg": lat_deg,
+        "longitudeDeg": lon_deg,
+        "velocityKmS": vel_km_s
     }

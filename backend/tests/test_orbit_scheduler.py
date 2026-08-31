@@ -8,32 +8,22 @@ from app.models.satellites import Satellite
 @pytest.mark.asyncio
 async def test_scheduler_survives_malformed_tle():
     sat1 = Satellite(id="uuid-1", norad_id=11111,
-                     status="active", orbit_state=None)
+                     status="active", orbit_state=None, tle_records=[])
     sat2 = Satellite(id="uuid-2", norad_id=22222,
-                     status="active", orbit_state=None)
+                     status="active", orbit_state=None, tle_records=[])
 
     mock_db = AsyncMock()
     mock_db.add = MagicMock()
-    mock_result = MagicMock()
-    async def mock_scalar_one_or_none():
-        pass
     
     def mock_execute(*args, **kwargs):
         mock_res = MagicMock()
         query_str = str(args[0])
-        # The first fetch selects id and norad_id, the second is a FOR UPDATE query
+        mock_scalars = MagicMock()
         if "FOR UPDATE" not in query_str:
-            mock_res.all.return_value = [(sat1.id, sat1.norad_id), (sat2.id, sat2.norad_id)]
+            mock_scalars.all.return_value = [sat1, sat2]
         else:
-            # We don't have the exact ID in the string (it's a bind param),
-            # but mock_execute will be called twice for the two satellites.
-            # We can use a side effect list or just check call_count if needed.
-            # For simplicity, if we need to return sat2 on the second call, let's just 
-            # return sat2 (since sat1 fails early and never triggers FOR UPDATE).
-            mock_res.scalar_one_or_none.return_value = sat2
-            mock_scalars = MagicMock()
             mock_scalars.all.return_value = [sat2]
-            mock_res.scalars.return_value = mock_scalars
+        mock_res.scalars.return_value = mock_scalars
         return mock_res
         
     mock_db.execute.side_effect = mock_execute
@@ -52,9 +42,9 @@ async def test_scheduler_survives_malformed_tle():
             with patch("app.services.orbit_scheduler.propagate_tle") as mock_propagate:
                 mock_propagate.return_value = {
                     "altitude_km": 400.0,
-                    "latitude_deg": 0.0,
-                    "longitude_deg": 0.0,
-                    "velocity_km_s": 7.6,
+                    "latitude_deg": 12.34,
+                    "longitude_deg": 56.78,
+                    "velocity_km_s": 7.66,
                     "inclination_deg": 51.6,
                     "eccentricity": 0.0001,
                     "raan_deg": 0.0,
@@ -78,3 +68,19 @@ async def test_scheduler_survives_malformed_tle():
                         broadcast_args = mock_broadcast.call_args[0][0]
                         assert len(broadcast_args) == 1
                         assert broadcast_args[0]["noradId"] == 22222
+                        assert broadcast_args[0]["latitudeDeg"] == 12.34
+                        assert broadcast_args[0]["longitudeDeg"] == 56.78
+                        assert broadcast_args[0]["velocityKmS"] == 7.66
+
+
+@pytest.mark.asyncio
+async def test_scheduler_propagates_critical_exception():
+    mock_db = AsyncMock()
+    mock_db.execute.side_effect = Exception("DB connection timeout")
+
+    with patch("app.services.orbit_scheduler.async_session_maker") as mock_maker:
+        mock_maker.return_value.__aenter__.return_value = mock_db
+
+        with pytest.raises(Exception, match="DB connection timeout"):
+            await update_orbit_states()
+        mock_db.rollback.assert_called_once()

@@ -62,6 +62,9 @@ class SatelliteResponse(BaseModel):
     status: str
     ownerOrg: str
     altitudeKm: Optional[float] = None
+    latitudeDeg: Optional[float] = None
+    longitudeDeg: Optional[float] = None
+    velocityKmS: Optional[float] = None
     inclinationDeg: Optional[float] = None
     periodMinutes: Optional[float] = None
     eccentricity: Optional[float] = None

@@ -139,6 +139,9 @@ async def test_add_satellite_from_tle_regression_orbit_state_access():
     )
     expected_sat.orbit_state = OrbitState(
         altitude_km=420.0,
+        latitude_deg=10.5,
+        longitude_deg=-20.5,
+        velocity_km_s=7.65,
         inclination_deg=51.64,
         period_minutes=92.5,
         eccentricity=0.0005,
@@ -160,9 +163,15 @@ async def test_add_satellite_from_tle_regression_orbit_state_access():
     # Assert orbit_state is loaded and accessible directly
     assert sat.orbit_state is not None
     assert sat.orbit_state.altitude_km == 420.0
+    assert sat.orbit_state.latitude_deg == 10.5
+    assert sat.orbit_state.longitude_deg == -20.5
+    assert sat.orbit_state.velocity_km_s == 7.65
 
     # Assert _format_satellite_response operates smoothly without async lazy load errors
     formatted = _format_satellite_response(sat)
     assert formatted["noradId"] == 25544
     assert formatted["altitudeKm"] == 420.0
+    assert formatted["latitudeDeg"] == 10.5
+    assert formatted["longitudeDeg"] == -20.5
+    assert formatted["velocityKmS"] == 7.65
     assert formatted["name"] == "ISS (ZARYA)"

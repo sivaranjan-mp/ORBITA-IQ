@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.models.satellites import Satellite, TLERecord
+from app.models.enums import SatelliteStatus
 from app.models.conjunctions import ConjunctionEvent
 from app.services.probability_engine import ProbabilityEngine
 from app.services.conjunction_engine import ConjunctionEngine
@@ -69,7 +70,7 @@ class SatguardService:
 
     async def screen_all(self, lookahead_hours=72, step_size_s=60, miss_dist_threshold_km=5.0):
         # 1. Fetch active satellites with their latest TLE
-        stmt = select(Satellite).where(Satellite.status == "active").options(
+        stmt = select(Satellite).where(Satellite.status == SatelliteStatus.ACTIVE).options(
             selectinload(Satellite.tle_records))
         result = await self.db.execute(stmt)
         satellites = result.scalars().all()

@@ -36,6 +36,9 @@ def _format_satellite_response(sat: Satellite) -> dict:
         "status": sat.status or "active",
         "ownerOrg": sat.owner_org or "Unknown",
         "altitudeKm": None,
+        "latitudeDeg": None,
+        "longitudeDeg": None,
+        "velocityKmS": None,
         "inclinationDeg": None,
         "periodMinutes": None,
         "eccentricity": None,
@@ -47,6 +50,9 @@ def _format_satellite_response(sat: Satellite) -> dict:
     if sat.orbit_state:
         resp.update({
             "altitudeKm": sat.orbit_state.altitude_km,
+            "latitudeDeg": sat.orbit_state.latitude_deg,
+            "longitudeDeg": sat.orbit_state.longitude_deg,
+            "velocityKmS": sat.orbit_state.velocity_km_s,
             "inclinationDeg": sat.orbit_state.inclination_deg,
             "periodMinutes": sat.orbit_state.period_minutes,
             "eccentricity": sat.orbit_state.eccentricity,

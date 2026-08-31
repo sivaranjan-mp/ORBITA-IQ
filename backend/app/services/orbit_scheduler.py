@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.session import async_session_maker
 from app.models.satellites import Satellite, OrbitState
+from app.models.enums import SatelliteStatus
 from app.services.celestrak_service import fetch_tle_by_norad_id
 from app.services.sgp4_service import propagate_tle
 from app.api.v1.endpoints.orbit_ws import orbit_manager
@@ -25,40 +26,51 @@ async def update_orbit_states():
 
     async with async_session_maker() as db:
         try:
-            # Fetch all active tracked satellites
-            # Assuming 'status' == 'active' means we track it
-            result = await db.execute(select(Satellite.id, Satellite.norad_id).where(Satellite.status == 'active'))
-            satellites = result.all()
+            # Fetch all active tracked satellites with their stored TLE records
+            stmt = select(Satellite).where(Satellite.status == SatelliteStatus.ACTIVE).options(
+                selectinload(Satellite.tle_records)
+            )
+            result = await db.execute(stmt)
+            satellites = result.scalars().all()
 
             now = datetime.now(timezone.utc)
-            # 1. Fetch and propagate all orbits sequentially (respecting limits)
+            # 1. Fetch or fallback TLE and propagate all orbits sequentially
             computed_states = {}
-            for sat_id, norad_id in satellites:
+            for sat in satellites:
                 try:
-                    # Respect CelesTrak rate limits: small sleep between requests
-                    await asyncio.sleep(0.5)
+                    line1, line2 = None, None
 
-                    tle_text = await fetch_tle_by_norad_id(norad_id)
-                    lines = tle_text.strip().split("\n")
-                    if len(lines) < 2:
+                    # Attempt fresh fetch from CelesTrak if possible
+                    try:
+                        await asyncio.sleep(0.5)
+                        tle_text = await fetch_tle_by_norad_id(sat.norad_id)
+                        lines = [l.strip() for l in tle_text.strip().split("\n") if l.strip()]
+                        if len(lines) >= 3:
+                            line1, line2 = lines[1], lines[2]
+                        elif len(lines) == 2:
+                            line1, line2 = lines[0], lines[1]
+                    except Exception as exc:
+                        logger.debug(f"CelesTrak fetch unavailable for NORAD {sat.norad_id}, falling back to stored TLE: {exc}")
+
+                    # If CelesTrak fetch was unavailable, fall back to the latest stored TLE in DB
+                    if not line1 or not line2:
+                        if sat.tle_records:
+                            latest_tle = max(sat.tle_records, key=lambda t: t.epoch)
+                            line1, line2 = latest_tle.line1, latest_tle.line2
+
+                    if not line1 or not line2:
+                        logger.warning(f"No TLE available to propagate for satellite {sat.norad_id}")
                         continue
-
-                    # Handle optional name line
-                    if len(lines) >= 3:
-                        line1, line2 = lines[1].strip(), lines[2].strip()
-                    else:
-                        line1, line2 = lines[0].strip(), lines[1].strip()
 
                     state = propagate_tle(line1, line2, now)
                     if not state:
-                        logger.warning(f"Failed to propagate TLE for satellite {norad_id}")
+                        logger.warning(f"Failed to propagate TLE for satellite {sat.norad_id}")
                         continue
-                    
-                    computed_states[sat_id] = state
+
+                    computed_states[sat.id] = state
 
                 except Exception as e:
-                    logger.error(f"Error processing satellite {norad_id}: {e}")
-                    # Skip to next satellite, don't crash batch
+                    logger.error(f"Error processing satellite {sat.norad_id}: {e}")
                     continue
 
             # 2. Bulk Database Update
@@ -97,8 +109,9 @@ async def update_orbit_states():
 
                     await db.commit()
                 except Exception as e:
-                    logger.error(f"Error during bulk DB update: {e}")
+                    logger.exception(f"Error during bulk DB update in update_orbit_states: {e}")
                     await db.rollback()
+                    raise
 
             # Broadcast updates if there are any connections
             if updates_to_broadcast:
@@ -108,8 +121,9 @@ async def update_orbit_states():
                 f"Finished orbit state update for {len(updates_to_broadcast)} satellites.")
 
         except Exception as e:
-            logger.error(f"Critical error in scheduled orbit update: {e}")
+            logger.exception(f"Critical error in scheduled orbit update: {e}")
             await db.rollback()
+            raise
 
 
 async def run_screening_job():
@@ -122,8 +136,9 @@ async def run_screening_job():
             logger.info(
                 f"Finished conjunction screening. {events_created} events created.")
         except Exception as e:
-            logger.error(f"Critical error in scheduled screening: {e}")
+            logger.exception(f"Critical error in scheduled screening: {e}")
             await db.rollback()
+            raise
 
 
 def init_scheduler():
