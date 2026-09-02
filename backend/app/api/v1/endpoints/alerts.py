@@ -65,6 +65,9 @@ async def seed_mock_alerts(
     current_user: UserProfile = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
     settings = get_settings()
     if settings.environment != "development":
         raise HTTPException(
@@ -72,6 +75,10 @@ async def seed_mock_alerts(
 
     from app.services.conjunction_service import ConjunctionService
     from app.models.alerts import Alert
+    from app.models.satellites import Satellite
+    from app.models.enums import SatelliteStatus
+    from sqlalchemy import delete
+    from sqlalchemy.future import select
 
     now = datetime.now(timezone.utc)
     def hours(h): return (now + timedelta(hours=h))
@@ -118,29 +125,34 @@ async def seed_mock_alerts(
     c_service = ConjunctionService(db)
     events = await c_service.seed_mock_alerts(mock_events)
 
-    from sqlalchemy.future import select
-    from app.models.satellites import Satellite
-    sat = (await db.execute(select(Satellite))).scalars().first()
+    await db.execute(delete(Alert))
 
-    alerts_created = []
-    if sat:
-        from sqlalchemy import delete
-        await db.execute(delete(Alert))
-
-        for ev in events:
-            alert = Alert(
-                conjunction_event_id=ev.id,
-                satellite_a_id=sat.id,
-                miss_distance=ev.miss_distance_m,
-                time_of_closest_approach=ev.tca,
-                risk_level=ev.risk_level,
-                status="active"
+    for ev in events:
+        sat_stmt = select(Satellite).where(Satellite.norad_id == ev.primary_norad_id)
+        sat = (await db.execute(sat_stmt)).scalars().first()
+        if not sat:
+            sat = Satellite(
+                norad_id=ev.primary_norad_id,
+                name=ev.primary_satellite,
+                status=SatelliteStatus.ACTIVE,
+                owner_org=current_user.employee_id
             )
-            db.add(alert)
-            alerts_created.append(alert)
-        await db.commit()
+            db.add(sat)
+            await db.flush()
 
-        service = AlertService(db)
-        alerts_created = await service.get_all_alerts()
+        alert = Alert(
+            conjunction_event_id=ev.id,
+            satellite_a_id=sat.id,
+            miss_distance=ev.miss_distance_m,
+            time_of_closest_approach=ev.tca,
+            risk_level=ev.risk_level,
+            status="active"
+        )
+        db.add(alert)
+
+    await db.commit()
+
+    service = AlertService(db)
+    alerts_created = await service.get_all_alerts()
 
     return [_format_alert(a) for a in alerts_created]

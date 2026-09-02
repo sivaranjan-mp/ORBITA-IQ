@@ -1,3 +1,4 @@
+import { AddSatelliteDialog } from "@/components/satellites/AddSatelliteDialog";
 import { SatelliteTable } from "@/components/satellites/SatelliteTable";
 
 export function AllSatellitesPage() {
@@ -10,6 +11,7 @@ export function AllSatellitesPage() {
             All objects currently tracked across the entire system.
           </p>
         </div>
+        <AddSatelliteDialog />
       </div>
 
       <SatelliteTable showOwner={true} scope="all" />

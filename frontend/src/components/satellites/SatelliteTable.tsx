@@ -12,14 +12,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useAuth } from "@/hooks/useAuth";
 import { useSatellites } from "@/hooks/useSatellites";
+import { cn } from "@/lib/utils";
 
 interface SatelliteTableProps {
   showOwner?: boolean;
   scope?: "mine" | "all";
+  highlightOwned?: boolean;
 }
 
-export function SatelliteTable({ showOwner = false, scope = "mine" }: SatelliteTableProps = {}) {
+export function SatelliteTable({
+  showOwner = false,
+  scope = "mine",
+  highlightOwned = scope === "all",
+}: SatelliteTableProps = {}) {
+  const { profile } = useAuth();
   const { satellites, isLoading } = useSatellites(scope);
   const [query, setQuery] = useState("");
 
@@ -76,35 +84,61 @@ export function SatelliteTable({ showOwner = false, scope = "mine" }: SatelliteT
             )}
 
             {!isLoading &&
-              filtered.map((sat) => (
-                <TableRow key={sat.id}>
-                  <TableCell>
-                    <p className="font-medium">{sat.name}</p>
-                    <p className="text-xs text-muted-foreground">{sat.internationalDesignator}</p>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{sat.noradId}</TableCell>
-                  {showOwner && (
-                    <TableCell className="text-xs text-muted-foreground">
-                      {sat.ownerOrg}
+              filtered.map((sat) => {
+                const isOwner = Boolean(
+                  highlightOwned &&
+                  profile?.employee_id &&
+                  sat.ownerOrg &&
+                  sat.ownerOrg.trim().toLowerCase() === profile.employee_id.trim().toLowerCase()
+                );
+
+                return (
+                  <TableRow
+                    key={sat.id}
+                    className={cn(
+                      isOwner &&
+                        "bg-amber-950/40 hover:bg-amber-950/60 text-amber-100 border-amber-900/40"
+                    )}
+                  >
+                    <TableCell>
+                      <p className={cn("font-medium", isOwner ? "text-amber-100" : "text-foreground")}>
+                        {sat.name}
+                      </p>
+                      <p className={cn("text-xs", isOwner ? "text-amber-200/70" : "text-muted-foreground")}>
+                        {sat.internationalDesignator}
+                      </p>
                     </TableCell>
-                  )}
-                  <TableCell className="text-right font-mono text-xs">
-                    {sat.altitudeKm != null ? `${sat.altitudeKm.toLocaleString()} km` : "N/A"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
-                    {sat.latitudeDeg?.toFixed(2)}°
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
-                    {sat.longitudeDeg?.toFixed(2)}°
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
-                    {sat.velocityKmS?.toFixed(2)} km/s
-                  </TableCell>
-                  <TableCell>
-                    <SatelliteStatusBadge status={sat.status} />
-                  </TableCell>
-                </TableRow>
-              ))}
+                    <TableCell className={cn("font-mono text-xs", isOwner ? "text-amber-100" : "text-foreground")}>
+                      {sat.noradId}
+                    </TableCell>
+                    {showOwner && (
+                      <TableCell className={cn("text-xs", isOwner ? "text-amber-200 font-medium" : "text-muted-foreground")}>
+                        {sat.ownerOrg}
+                        {isOwner && (
+                          <span className="ml-1.5 inline-block rounded bg-amber-500/20 px-1 py-0.5 text-[10px] font-semibold text-amber-300">
+                            You
+                          </span>
+                        )}
+                      </TableCell>
+                    )}
+                    <TableCell className={cn("text-right font-mono text-xs", isOwner ? "text-amber-100" : "text-foreground")}>
+                      {sat.altitudeKm != null ? `${sat.altitudeKm.toLocaleString()} km` : "N/A"}
+                    </TableCell>
+                    <TableCell className={cn("text-right font-mono text-xs", isOwner ? "text-amber-100" : "text-foreground")}>
+                      {sat.latitudeDeg?.toFixed(2)}°
+                    </TableCell>
+                    <TableCell className={cn("text-right font-mono text-xs", isOwner ? "text-amber-100" : "text-foreground")}>
+                      {sat.longitudeDeg?.toFixed(2)}°
+                    </TableCell>
+                    <TableCell className={cn("text-right font-mono text-xs", isOwner ? "text-amber-100" : "text-foreground")}>
+                      {sat.velocityKmS?.toFixed(2)} km/s
+                    </TableCell>
+                    <TableCell>
+                      <SatelliteStatusBadge status={sat.status} />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
           </TableBody>
         </Table>
       </div>

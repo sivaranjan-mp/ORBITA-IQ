@@ -9,7 +9,7 @@ from functools import lru_cache
 from typing import Union, Annotated
 
 from pydantic import model_validator, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # ---- App ----
     environment: str = "development"
     frontend_url: str = "http://localhost:5173"
-    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+    cors_origins: list[str] = ["http://localhost:5173"]
 
     @field_validator("cors_origins", mode="before")
     @classmethod

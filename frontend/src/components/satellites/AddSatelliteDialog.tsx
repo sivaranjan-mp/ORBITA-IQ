@@ -17,6 +17,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient } from "@/lib/apiClient";
 
+import axios from "axios";
+
 export function AddSatelliteDialog() {
   const [open, setOpen] = useState(false);
   const [noradId, setNoradId] = useState("");
@@ -47,9 +49,12 @@ export function AddSatelliteDialog() {
       setOpen(false);
       setNoradId("");
       window.location.reload();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to add satellite:", error);
-      const msg = error.response?.data?.detail || "Failed to add satellite. Check console or try manual TLE paste.";
+      let msg = "Failed to add satellite. Check console or try manual TLE paste.";
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        msg = String(error.response.data.detail);
+      }
       alert(msg);
     } finally {
       setIsSubmitting(false);
@@ -65,9 +70,12 @@ export function AddSatelliteDialog() {
       setOpen(false);
       setRawTle("");
       window.location.reload();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to add satellite from TLE:", error);
-      const msg = error.response?.data?.detail || "Failed to add satellite from TLE. Please check the TLE format.";
+      let msg = "Failed to add satellite from TLE. Please check the TLE format.";
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        msg = String(error.response.data.detail);
+      }
       alert(msg);
     } finally {
       setIsSubmitting(false);
