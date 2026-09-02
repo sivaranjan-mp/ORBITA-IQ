@@ -129,7 +129,7 @@ async def add_satellite_by_norad(
         sat = await service.add_satellite_by_norad(request.norad_id, owner_org=current_user.employee_id)
         return _format_satellite_response(sat)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except HTTPException as e:
         logger.warning(f"HTTPException while adding satellite {request.norad_id}: {e.status_code} - {e.detail}")
         raise
@@ -151,7 +151,7 @@ async def add_satellite_manual(
         sat = await service.add_satellite_from_tle(request.raw_tle, owner_org=current_user.employee_id)
         return _format_satellite_response(sat)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
     except HTTPException as e:
         logger.warning(f"HTTPException while adding satellite from TLE: {e.status_code} - {e.detail}")
         raise
@@ -263,7 +263,7 @@ async def upload_tle(
         sat = await service.upload_tle(request.norad_id, request.raw_tle)
         return {"message": "TLE uploaded successfully", "id": str(sat.id)}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.post("/upload-omm")

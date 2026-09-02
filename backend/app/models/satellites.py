@@ -49,12 +49,12 @@ class OrbitState(Base):
     satellite_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(
         'satellites.id', ondelete='CASCADE'), unique=True, nullable=False)
     altitude_km: Mapped[float] = mapped_column(Float, nullable=False)
-    latitude_deg: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0)
-    longitude_deg: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0)
-    velocity_km_s: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0)
+    latitude_deg: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True)
+    longitude_deg: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True)
+    velocity_km_s: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True)
     inclination_deg: Mapped[float] = mapped_column(Float, nullable=False)
     period_minutes: Mapped[float] = mapped_column(Float, nullable=False)
     eccentricity: Mapped[float] = mapped_column(Float, nullable=False)

@@ -59,9 +59,9 @@ class SatelliteService:
 
         orbit = OrbitState(
             altitude_km=parsed["altitudeKm"],
-            latitude_deg=parsed.get("latitudeDeg", 0.0),
-            longitude_deg=parsed.get("longitudeDeg", 0.0),
-            velocity_km_s=parsed.get("velocityKmS", 0.0),
+            latitude_deg=parsed.get("latitudeDeg"),
+            longitude_deg=parsed.get("longitudeDeg"),
+            velocity_km_s=parsed.get("velocityKmS"),
             inclination_deg=parsed["inclinationDeg"],
             period_minutes=parsed["periodMinutes"],
             eccentricity=parsed["eccentricity"],
@@ -107,9 +107,9 @@ class SatelliteService:
 
         orbit = OrbitState(
             altitude_km=parsed["altitudeKm"],
-            latitude_deg=parsed.get("latitudeDeg", 0.0),
-            longitude_deg=parsed.get("longitudeDeg", 0.0),
-            velocity_km_s=parsed.get("velocityKmS", 0.0),
+            latitude_deg=parsed.get("latitudeDeg"),
+            longitude_deg=parsed.get("longitudeDeg"),
+            velocity_km_s=parsed.get("velocityKmS"),
             inclination_deg=parsed["inclinationDeg"],
             period_minutes=parsed["periodMinutes"],
             eccentricity=parsed["eccentricity"],
@@ -182,9 +182,9 @@ class SatelliteService:
 
         if sat.orbit_state:
             sat.orbit_state.altitude_km = parsed["altitudeKm"]
-            sat.orbit_state.latitude_deg = parsed.get("latitudeDeg", sat.orbit_state.latitude_deg)
-            sat.orbit_state.longitude_deg = parsed.get("longitudeDeg", sat.orbit_state.longitude_deg)
-            sat.orbit_state.velocity_km_s = parsed.get("velocityKmS", sat.orbit_state.velocity_km_s)
+            sat.orbit_state.latitude_deg = parsed.get("latitudeDeg")
+            sat.orbit_state.longitude_deg = parsed.get("longitudeDeg")
+            sat.orbit_state.velocity_km_s = parsed.get("velocityKmS")
             sat.orbit_state.inclination_deg = parsed["inclinationDeg"]
             sat.orbit_state.period_minutes = parsed["periodMinutes"]
             sat.orbit_state.eccentricity = parsed["eccentricity"]

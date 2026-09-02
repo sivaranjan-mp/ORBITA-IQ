@@ -47,9 +47,15 @@ def parse_tle(raw_tle: str) -> dict:
     # Compute geodetic position (lat, lon, vel) at current time (or epoch fallback)
     now_utc = datetime.now(timezone.utc)
     prop_state = propagate_tle(line1, line2, now_utc) or propagate_tle(line1, line2, epoch_ts)
-    lat_deg = prop_state["latitude_deg"] if prop_state else 0.0
-    lon_deg = prop_state["longitude_deg"] if prop_state else 0.0
-    vel_km_s = prop_state["velocity_km_s"] if prop_state else 0.0
+    if not prop_state:
+        raise ValueError(
+            "TLE could not be propagated — it may be corrupted, malformed, or "
+            "critically stale. Please verify the TLE and try again with a fresh one."
+        )
+
+    lat_deg = prop_state["latitude_deg"] if prop_state else None
+    lon_deg = prop_state["longitude_deg"] if prop_state else None
+    vel_km_s = prop_state["velocity_km_s"] if prop_state else None
     if prop_state and prop_state.get("altitude_km") is not None:
         altitude_km = prop_state["altitude_km"]
 

@@ -1,7 +1,10 @@
+import logging
 import math
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 from sgp4.api import Satrec
+
+logger = logging.getLogger(__name__)
 
 # WGS84 Constants
 EARTH_RADIUS_KM = 6378.137
@@ -66,6 +69,7 @@ def propagate_tle(line1: str, line2: str, dt: datetime) -> Optional[Dict]:
 
         e, r, v = satrec.sgp4(now_jd, now_fr)
         if e != 0:
+            logger.warning(f"SGP4 propagation error code {e} for TLE at {dt.isoformat()}")
             return None
 
         x, y, z = r
@@ -99,6 +103,7 @@ def propagate_tle(line1: str, line2: str, dt: datetime) -> Optional[Dict]:
             "vy_kms": vy,
             "vz_kms": vz
         }
-    except Exception:
+    except Exception as exc:
         # Catch SGP4 or math errors
+        logger.warning(f"SGP4 propagation exception for TLE at {dt.isoformat()}: {exc}")
         return None
