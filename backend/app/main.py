@@ -22,6 +22,19 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure all declared database models/tables exist in Postgres
+    try:
+        from app.db.session import engine, Base
+        import app.models.catalog  # noqa: F401
+        import app.models.satellites  # noqa: F401
+        import app.models.alerts  # noqa: F401
+        import app.models.conjunctions  # noqa: F401
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables initialized successfully via Base.metadata.create_all.")
+    except Exception as e:
+        logger.warning(f"Note: Could not run Base.metadata.create_all on startup: {e}")
+
     init_scheduler()
     yield
     shutdown_scheduler()

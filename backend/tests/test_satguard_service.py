@@ -40,11 +40,11 @@ async def test_satguard_synthetic_screening(mock_satrec):
     service = SatguardService(db)
 
     # Create two satellites that are mocked to be very close at step 10
-    sat1 = Satellite(id="s1", status="active")
+    sat1 = Satellite(id="s1", norad_id=25544, name="SAT-A", status="active")
     tle1 = TLERecord(line1="1", line2="2", epoch=datetime.now(timezone.utc))
     sat1.tle_records = [tle1]
 
-    sat2 = Satellite(id="s2", status="active")
+    sat2 = Satellite(id="s2", norad_id=99999, name="SAT-B", status="active")
     tle2 = TLERecord(line1="1", line2="2", epoch=datetime.now(timezone.utc))
     sat2.tle_records = [tle2]
 
@@ -54,14 +54,15 @@ async def test_satguard_synthetic_screening(mock_satrec):
 
     # Mock compute_apogee_perigee to allow them to overlap
     with patch.object(service, '_compute_apogee_perigee', return_value=(500, 400)):
-
         # Mock distance func to artificially dip to 2km at t=600s
+        first_dt = None
+
         def mock_distance(s1, s2, dt):
-            # Let's say dt ranges around 'now'.
-            # At exactly t=600s, distance is 2.0 km.
-            diff = (
-                dt - datetime.now(timezone.utc).replace(microsecond=0)).total_seconds()
-            dist = 500.0 if abs(diff - 600) > 60 else 2.0 + abs(diff - 600)
+            nonlocal first_dt
+            if first_dt is None:
+                first_dt = dt
+            diff = (dt - first_dt).total_seconds()
+            dist = 500.0 if abs(diff - 600) > 30 else 2.0
             # dist, r1, v1, r2, v2, rel_vel
             return dist, [0, 0, 0], [0, 0, 0], [2, 0, 0], [1, 0, 0], 1.0
 
