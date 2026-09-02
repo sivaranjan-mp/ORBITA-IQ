@@ -6,12 +6,16 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from app.models.satellites import Satellite, OrbitState, TLERecord, OMMRecord
-from app.services.celestrak_service import fetch_tle_by_norad_id
+from app.services import celestrak_service
 from app.services.tle_parser import parse_tle
 from app.services.omm_parser import parse_omm_json
 from app.schemas.satellites import SatelliteAddRequest, SatelliteUpdateRequest, TLEUploadRequest, OMMUploadRequest
 
 logger = logging.getLogger(__name__)
+
+# Module-level alias for test patching
+def fetch_tle_by_norad_id(*args, **kwargs):
+    return celestrak_service.fetch_tle_by_norad_id(*args, **kwargs)
 
 class SatelliteService:
     def __init__(self, session: AsyncSession):
@@ -48,7 +52,7 @@ class SatelliteService:
         if existing:
             return existing
 
-        raw_tle = await fetch_tle_by_norad_id(norad_id)
+        raw_tle = await celestrak_service.fetch_tle_by_norad_id(norad_id)
         parsed = parse_tle(raw_tle)
 
         sat_name = parsed.get("name") or "Unknown"
@@ -105,7 +109,8 @@ class SatelliteService:
         if not sat_name:
             # Fall back to CelesTrak name lookup by NORAD ID parsed from line 1
             try:
-                celestrak_tle = await fetch_tle_by_norad_id(norad_id)
+                fetcher = getattr(self, "fetch_tle_by_norad_id", None) or fetch_tle_by_norad_id
+                celestrak_tle = await fetcher(norad_id)
                 celestrak_parsed = parse_tle(celestrak_tle)
                 sat_name = celestrak_parsed.get("name")
             except Exception as exc:
