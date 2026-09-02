@@ -24,4 +24,17 @@ export interface CatalogListResponse {
 export interface CatalogSyncResponse {
   syncedCount: number;
   message: string;
+  status: string;
+}
+
+export interface CatalogSyncStatus {
+  status: "idle" | "running" | "completed" | "failed";
+  processed: number;
+  total: number;
+  percent: number;
+  syncedCount: number;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  error?: string | null;
+  message?: string | null;
 }

@@ -141,11 +141,23 @@ async def run_screening_job():
             raise
 
 
+async def run_catalog_sync_job():
+    logger.info("Starting scheduled periodic catalog synchronization with CelesTrak.")
+    from app.services.catalog_service import CatalogService
+    try:
+        await CatalogService.run_sync_background_job()
+    except Exception as e:
+        logger.exception(f"Critical error in scheduled catalog sync: {e}")
+
+
 def init_scheduler():
     scheduler.add_job(update_orbit_states, 'interval', minutes=5,
                       id='update_orbit_states_job', replace_existing=True)
     scheduler.add_job(run_screening_job, 'interval', minutes=30,
                       id='run_screening_job', replace_existing=True)
+    # Automatically refresh global catalog twice daily (every 12 hours)
+    scheduler.add_job(run_catalog_sync_job, 'interval', hours=12,
+                      id='catalog_sync_job', replace_existing=True)
     scheduler.start()
 
 

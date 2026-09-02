@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Globe2, Loader2, RefreshCw, Search } from "lucide-react";
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Globe2, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -172,7 +172,7 @@ export function CatalogTable() {
             <Button
               variant="outline"
               size="sm"
-              onClick={syncCatalog}
+              onClick={() => syncCatalog(false)}
               disabled={isSyncing}
               className="shrink-0"
             >
@@ -183,9 +183,53 @@ export function CatalogTable() {
         )}
       </div>
 
-      {syncStatus && (
-        <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
-          {syncStatus}
+      {/* Sync Status Banner */}
+      {syncStatus && syncStatus.status === "running" && (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 p-4 space-y-2.5">
+          <div className="flex items-center justify-between text-xs font-medium text-primary">
+            <span className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {syncStatus.message || "Downloading and indexing active space objects from CelesTrak..."}
+            </span>
+            <span>
+              {syncStatus.processed > 0 && syncStatus.total > 0
+                ? `${syncStatus.processed.toLocaleString()} / ${syncStatus.total.toLocaleString()} (${syncStatus.percent}%)`
+                : `${syncStatus.percent}%`}
+            </span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-primary/20">
+            <div
+              className="h-full bg-primary transition-all duration-300"
+              style={{ width: `${Math.max(5, syncStatus.percent)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {syncStatus && syncStatus.status === "completed" && (
+        <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-xs text-emerald-400">
+          <span className="flex items-center gap-2 font-medium">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            {syncStatus.message || `Sync completed: ${syncStatus.syncedCount.toLocaleString()} space objects updated.`}
+          </span>
+          <span className="text-[11px] opacity-75">Refreshed</span>
+        </div>
+      )}
+
+      {syncStatus && syncStatus.status === "failed" && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-xs text-destructive">
+          <span className="flex items-center gap-2 font-medium">
+            <XCircle className="h-4 w-4 text-destructive" />
+            {syncStatus.error || syncStatus.message || "Catalog synchronization encountered an error."}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 text-[11px] text-destructive hover:bg-destructive/20"
+            onClick={() => syncCatalog(true)}
+          >
+            Retry
+          </Button>
         </div>
       )}
 

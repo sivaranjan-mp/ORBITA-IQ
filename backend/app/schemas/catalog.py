@@ -29,3 +29,16 @@ class CatalogListResponse(BaseModel):
 class CatalogSyncResponse(BaseModel):
     syncedCount: int
     message: str
+    status: str = "running"
+
+
+class CatalogSyncStatusResponse(BaseModel):
+    status: str = Field("idle", description="idle | running | completed | failed")
+    processed: int = 0
+    total: int = 0
+    percent: int = 0
+    syncedCount: int = 0
+    startedAt: Optional[datetime] = None
+    completedAt: Optional[datetime] = None
+    error: Optional[str] = None
+    message: Optional[str] = None

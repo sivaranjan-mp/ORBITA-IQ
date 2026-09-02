@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import math
 import re
@@ -9,9 +10,14 @@ from sgp4.api import Satrec
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.session import async_session_maker
 from app.models.catalog import CatalogSatellite
 from app.models.satellites import Satellite
-from app.schemas.catalog import CatalogItemResponse, CatalogListResponse
+from app.schemas.catalog import (
+    CatalogItemResponse,
+    CatalogListResponse,
+    CatalogSyncStatusResponse,
+)
 from app.services.celestrak_service import CELESTRAK_HEADERS
 
 logger = logging.getLogger(__name__)
@@ -98,6 +104,37 @@ STARTER_CATALOG_TLES = [
         "2 43564  56.0000  75.4000 0003500 120.1000 240.3000  1.70720000350005",
     ),
 ]
+
+
+class CatalogSyncTracker:
+    def __init__(self):
+        self.status = "idle"  # idle | running | completed | failed
+        self.processed = 0
+        self.total = 0
+        self.percent = 0
+        self.synced_count = 0
+        self.started_at: Optional[datetime] = None
+        self.completed_at: Optional[datetime] = None
+        self.error: Optional[str] = None
+        self.message: Optional[str] = None
+        self.last_sync_completed_at: Optional[datetime] = None
+        self._lock = asyncio.Lock()
+
+    def get_status_response(self) -> CatalogSyncStatusResponse:
+        return CatalogSyncStatusResponse(
+            status=self.status,
+            processed=self.processed,
+            total=self.total,
+            percent=self.percent,
+            syncedCount=self.synced_count,
+            startedAt=self.started_at,
+            completedAt=self.completed_at,
+            error=self.error,
+            message=self.message,
+        )
+
+
+sync_tracker = CatalogSyncTracker()
 
 
 class CatalogService:
@@ -194,94 +231,121 @@ class CatalogService:
         logger.info(f"Seeded {added} baseline satellites into catalog_satellites.")
         return added
 
-    async def sync_celestrak_active_catalog(self) -> Tuple[int, str]:
+    @classmethod
+    async def run_sync_background_job(cls):
         """
-        Fetches active satellites from CelesTrak in bulk and upserts into catalog_satellites.
+        Background task executing CelesTrak active catalog download and batch insertion.
         """
-        logger.info("Starting CelesTrak active satellite catalog synchronization...")
+        async with sync_tracker._lock:
+            if sync_tracker.status == "running":
+                logger.warning("Sync task requested while already running. Skipping.")
+                return
+
+            sync_tracker.status = "running"
+            sync_tracker.started_at = datetime.now(timezone.utc)
+            sync_tracker.completed_at = None
+            sync_tracker.error = None
+            sync_tracker.processed = 0
+            sync_tracker.total = 0
+            sync_tracker.percent = 0
+            sync_tracker.message = "Downloading CelesTrak active satellites catalog..."
+
+        logger.info("Executing background CelesTrak active catalog sync...")
         try:
-            async with httpx.AsyncClient(
-                headers=CELESTRAK_HEADERS, timeout=30.0
-            ) as client:
+            async with httpx.AsyncClient(headers=CELESTRAK_HEADERS, timeout=45.0) as client:
                 response = await client.get(CELESTRAK_ACTIVE_URL)
                 response.raise_for_status()
                 tle_text = response.text
+
+            lines = [l.strip() for l in tle_text.split("\n") if l.strip()]
+            if len(lines) < 3:
+                raise ValueError("No satellite data returned from CelesTrak.")
+
+            # Estimate total satellites (roughly lines / 3)
+            estimated_total = max(1, len(lines) // 3)
+            sync_tracker.total = estimated_total
+            sync_tracker.message = f"Parsing and inserting {estimated_total} active satellites..."
+
+            synced_count = 0
+            now = datetime.now(timezone.utc)
+            batch = []
+
+            async with async_session_maker() as db:
+                idx = 0
+                while idx < len(lines):
+                    if idx + 2 < len(lines) and lines[idx + 1].startswith("1 ") and lines[idx + 2].startswith("2 "):
+                        name = lines[idx]
+                        l1 = lines[idx + 1]
+                        l2 = lines[idx + 2]
+                        idx += 3
+                    elif idx + 1 < len(lines) and lines[idx].startswith("1 ") and lines[idx + 1].startswith("2 "):
+                        name = f"OBJECT {lines[idx][2:7]}"
+                        l1 = lines[idx]
+                        l2 = lines[idx + 1]
+                        idx += 2
+                    else:
+                        idx += 1
+                        continue
+
+                    parsed = cls.parse_tle_elements(name, l1, l2)
+                    if not parsed:
+                        continue
+
+                    cat_sat = CatalogSatellite(
+                        norad_id=parsed["norad_id"],
+                        name=parsed["name"],
+                        international_designator=parsed["international_designator"],
+                        object_type=parsed["object_type"],
+                        orbit_regime=parsed["orbit_regime"],
+                        apogee_km=parsed["apogee_km"],
+                        perigee_km=parsed["perigee_km"],
+                        inclination_deg=parsed["inclination_deg"],
+                        period_minutes=parsed["period_minutes"],
+                        eccentricity=parsed["eccentricity"],
+                        line1=parsed["line1"],
+                        line2=parsed["line2"],
+                        epoch=parsed["epoch"],
+                        updated_at=now,
+                    )
+                    batch.append(cat_sat)
+                    synced_count += 1
+
+                    if len(batch) >= 500:
+                        for item in batch:
+                            await db.merge(item)
+                        await db.commit()
+                        batch = []
+
+                        # Update tracker progress
+                        sync_tracker.processed = synced_count
+                        sync_tracker.percent = min(100, int((synced_count / estimated_total) * 100))
+
+                if batch:
+                    for item in batch:
+                        await db.merge(item)
+                    await db.commit()
+
+            sync_tracker.processed = synced_count
+            sync_tracker.synced_count = synced_count
+            sync_tracker.percent = 100
+            sync_tracker.status = "completed"
+            sync_tracker.completed_at = datetime.now(timezone.utc)
+            sync_tracker.last_sync_completed_at = sync_tracker.completed_at
+            sync_tracker.message = f"Successfully synchronized {synced_count:,} space objects from CelesTrak."
+            logger.info(f"CelesTrak sync background job complete. {synced_count} satellites stored.")
+
         except Exception as exc:
-            logger.warning(
-                f"Could not reach CelesTrak bulk endpoint ({exc}). Checking if starter seed needed..."
-            )
-            seeded = await self.seed_starter_catalog_if_empty()
-            if seeded > 0:
-                return (
-                    seeded,
-                    f"CelesTrak unavailable ({exc}); initialized baseline catalog with {seeded} satellites.",
-                )
-            return (
-                0,
-                f"Failed to synchronize with CelesTrak: {str(exc)}",
-            )
+            logger.exception(f"Error during CelesTrak catalog sync background job: {exc}")
+            sync_tracker.status = "failed"
+            sync_tracker.error = str(exc)
+            sync_tracker.message = f"Synchronization failed: {str(exc)}"
 
-        lines = [l.strip() for l in tle_text.split("\n") if l.strip()]
-        if len(lines) < 3:
-            return 0, "No satellite data returned from CelesTrak."
-
-        synced_count = 0
-        batch = []
-        now = datetime.now(timezone.utc)
-
-        idx = 0
-        while idx < len(lines):
-            # Check if 3-line format (line 0 is name, line 1 starts with 1, line 2 starts with 2)
-            if idx + 2 < len(lines) and lines[idx + 1].startswith("1 ") and lines[idx + 2].startswith("2 "):
-                name = lines[idx]
-                l1 = lines[idx + 1]
-                l2 = lines[idx + 2]
-                idx += 3
-            elif idx + 1 < len(lines) and lines[idx].startswith("1 ") and lines[idx + 1].startswith("2 "):
-                name = f"OBJECT {lines[idx][2:7]}"
-                l1 = lines[idx]
-                l2 = lines[idx + 1]
-                idx += 2
-            else:
-                idx += 1
-                continue
-
-            parsed = self.parse_tle_elements(name, l1, l2)
-            if not parsed:
-                continue
-
-            cat_sat = CatalogSatellite(
-                norad_id=parsed["norad_id"],
-                name=parsed["name"],
-                international_designator=parsed["international_designator"],
-                object_type=parsed["object_type"],
-                orbit_regime=parsed["orbit_regime"],
-                apogee_km=parsed["apogee_km"],
-                perigee_km=parsed["perigee_km"],
-                inclination_deg=parsed["inclination_deg"],
-                period_minutes=parsed["period_minutes"],
-                eccentricity=parsed["eccentricity"],
-                line1=parsed["line1"],
-                line2=parsed["line2"],
-                epoch=parsed["epoch"],
-                updated_at=now,
-            )
-            batch.append(cat_sat)
-            synced_count += 1
-
-            if len(batch) >= 500:
-                for item in batch:
-                    await self.session.merge(item)
-                await self.session.commit()
-                batch = []
-
-        if batch:
-            for item in batch:
-                await self.session.merge(item)
-            await self.session.commit()
-
-        logger.info(f"Successfully synchronized {synced_count} satellites from CelesTrak.")
-        return synced_count, f"Successfully synchronized {synced_count} satellites from CelesTrak."
+    async def sync_celestrak_active_catalog(self) -> Tuple[int, str]:
+        """
+        Direct/Synchronous fallback helper.
+        """
+        await self.run_sync_background_job()
+        return sync_tracker.synced_count, sync_tracker.message or ""
 
     async def search_catalog(
         self,

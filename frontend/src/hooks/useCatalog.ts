@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/apiClient";
-import type { CatalogListResponse, CatalogSyncResponse } from "@/types/catalog";
+import type { CatalogListResponse, CatalogSyncResponse, CatalogSyncStatus } from "@/types/catalog";
 
 interface UseCatalogOptions {
   search?: string;
@@ -26,8 +26,8 @@ export function useCatalog({
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<CatalogSyncStatus | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchCatalog = useCallback(async () => {
     setIsLoading(true);
@@ -54,6 +54,37 @@ export function useCatalog({
     fetchCatalog();
   }, [fetchCatalog]);
 
+  // Status poller
+  const checkSyncStatus = useCallback(async () => {
+    try {
+      const res = await apiClient.get<CatalogSyncStatus>("/catalog/sync/status");
+      setSyncStatus(res.data);
+      if (res.data.status === "completed") {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+        fetchCatalog();
+      } else if (res.data.status === "failed") {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      }
+    } catch (err) {
+      console.error("Failed to check sync status:", err);
+    }
+  }, [fetchCatalog]);
+
+  // Clean up polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
+
   const trackSatellite = useCallback(async (noradId: number): Promise<boolean> => {
     try {
       await apiClient.post(`/catalog/track/${noradId}`);
@@ -71,20 +102,39 @@ export function useCatalog({
     }
   }, []);
 
-  const syncCatalog = useCallback(async () => {
-    setIsSyncing(true);
-    setSyncStatus(null);
+  const syncCatalog = useCallback(async (force = false) => {
     try {
-      const res = await apiClient.post<CatalogSyncResponse>("/catalog/sync");
-      setSyncStatus(res.data.message || `Synced ${res.data.syncedCount} objects.`);
-      await fetchCatalog();
-    } catch (err) {
+      const res = await apiClient.post<CatalogSyncResponse>(`/catalog/sync?force=${force}`);
+      setSyncStatus({
+        status: "running",
+        processed: 0,
+        total: 0,
+        percent: 0,
+        syncedCount: res.data.syncedCount,
+        message: res.data.message,
+      });
+
+      // Start polling
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = setInterval(checkSyncStatus, 1500);
+      // Run immediate status check
+      checkSyncStatus();
+    } catch (err: any) {
       console.error("Failed to synchronize catalog:", err);
-      setSyncStatus("Synchronization failed. Check permissions or network.");
-    } finally {
-      setIsSyncing(false);
+      const msg = err.response?.data?.detail || "Synchronization trigger failed.";
+      setSyncStatus({
+        status: "failed",
+        processed: 0,
+        total: 0,
+        percent: 0,
+        syncedCount: 0,
+        error: msg,
+        message: msg,
+      });
     }
-  }, [fetchCatalog]);
+  }, [checkSyncStatus]);
+
+  const isSyncing = syncStatus?.status === "running";
 
   return {
     items: data.items,

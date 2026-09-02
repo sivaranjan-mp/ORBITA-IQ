@@ -1,17 +1,22 @@
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.endpoints.satellites import _format_satellite_response
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.schemas.auth import UserProfile
-from app.schemas.catalog import CatalogListResponse, CatalogSyncResponse
+from app.schemas.catalog import (
+    CatalogListResponse,
+    CatalogSyncResponse,
+    CatalogSyncStatusResponse,
+)
 from app.schemas.satellites import SatelliteResponse
-from app.services.catalog_service import CatalogService
+from app.services.catalog_service import CatalogService, sync_tracker
 from app.services.satellite_service import SatelliteService
-from app.api.v1.endpoints.satellites import _format_satellite_response
 
 logger = logging.getLogger(__name__)
 
@@ -39,19 +44,51 @@ async def list_catalog(
     )
 
 
+@router.get("/sync/status", response_model=CatalogSyncStatusResponse)
+async def get_catalog_sync_status(
+    current_user: UserProfile = Depends(get_current_user),
+):
+    return sync_tracker.get_status_response()
+
+
 @router.post("/sync", response_model=CatalogSyncResponse)
 async def sync_catalog(
+    background_tasks: BackgroundTasks,
+    force: bool = Query(False, description="Bypass fair-use cooldown"),
     current_user: UserProfile = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
     if current_user.role not in ("admin", "operator"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only operators and admins can synchronize the catalog.",
         )
-    service = CatalogService(db)
-    count, msg = await service.sync_celestrak_active_catalog()
-    return CatalogSyncResponse(syncedCount=count, message=msg)
+
+    # 1. Guard against concurrent syncs
+    if sync_tracker.status == "running":
+        return CatalogSyncResponse(
+            syncedCount=sync_tracker.synced_count,
+            message="Catalog synchronization is already running in the background.",
+            status="running",
+        )
+
+    # 2. Fair-use cooldown (3 minutes between syncs unless force=True)
+    if not force and sync_tracker.last_sync_completed_at:
+        elapsed_seconds = (datetime.now(timezone.utc) - sync_tracker.last_sync_completed_at).total_seconds()
+        if elapsed_seconds < 180:
+            remaining = int(180 - elapsed_seconds)
+            return CatalogSyncResponse(
+                syncedCount=sync_tracker.synced_count,
+                message=f"Catalog was recently synchronized. Please wait {remaining}s before syncing again.",
+                status="completed",
+            )
+
+    # 3. Trigger background execution
+    background_tasks.add_task(CatalogService.run_sync_background_job)
+    return CatalogSyncResponse(
+        syncedCount=0,
+        message="CelesTrak active catalog synchronization initiated in background.",
+        status="running",
+    )
 
 
 @router.post("/track/{norad_id}", response_model=SatelliteResponse)

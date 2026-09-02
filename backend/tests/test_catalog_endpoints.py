@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.schemas.auth import UserProfile
 from app.models.catalog import CatalogSatellite
 from app.models.satellites import Satellite
+from app.services.catalog_service import sync_tracker
 
 client = TestClient(app)
 
@@ -118,6 +119,35 @@ def test_track_catalog_satellite():
     data = response.json()
     assert data["noradId"] == 25544
     assert data["name"] == "ISS (ZARYA)"
+
+
+def test_sync_catalog_status_and_trigger():
+    operator_user = UserProfile(
+        id="user-123",
+        employee_id="EMP-0042",
+        email="operator@example.com",
+        full_name="Orbit Operator",
+        role="operator",
+        is_active=True,
+    )
+    app.dependency_overrides[get_current_user] = lambda: operator_user
+
+    # Reset tracker
+    sync_tracker.status = "idle"
+    sync_tracker.last_sync_completed_at = None
+
+    # Get status
+    res = client.get("/api/v1/catalog/sync/status")
+    assert res.status_code == 200
+    status_data = res.json()
+    assert status_data["status"] == "idle"
+
+    # Trigger sync with force=True
+    with patch("app.services.catalog_service.CatalogService.run_sync_background_job", new_callable=AsyncMock):
+        post_res = client.post("/api/v1/catalog/sync?force=true")
+        assert post_res.status_code == 200
+        data = post_res.json()
+        assert data["status"] == "running"
 
 
 def test_sync_catalog_forbidden_for_unauthorized():
