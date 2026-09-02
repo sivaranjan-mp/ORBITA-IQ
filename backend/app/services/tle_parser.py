@@ -1,4 +1,5 @@
 import math
+import re
 from datetime import datetime, timedelta, timezone
 from sgp4.api import Satrec
 from app.services.sgp4_service import propagate_tle
@@ -11,10 +12,12 @@ def parse_tle(raw_tle: str) -> dict:
     """
     lines = [line.strip() for line in raw_tle.split("\n") if line.strip()]
     if len(lines) == 2:
-        name = "Unknown Object"
+        name = None
         line1, line2 = lines
     elif len(lines) >= 3:
-        name = lines[0]
+        line0 = lines[0].strip()
+        # In 3LE format, line 0 may start with '0 ' (or '0' followed by spaces)
+        name = re.sub(r"^0\s+", "", line0).strip() or None
         line1 = lines[1]
         line2 = lines[2]
     else:

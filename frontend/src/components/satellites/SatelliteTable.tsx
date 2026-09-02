@@ -122,7 +122,7 @@ export function SatelliteTable({
                   >
                     <TableCell>
                       <p className={cn("font-medium", isOwner ? "text-amber-100" : "text-foreground")}>
-                        {sat.name}
+                        {sat.name || "Unknown"}
                       </p>
                       <p className={cn("text-xs", isOwner ? "text-amber-200/70" : "text-muted-foreground")}>
                         {sat.internationalDesignator}

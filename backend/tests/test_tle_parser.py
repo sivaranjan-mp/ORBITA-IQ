@@ -33,6 +33,34 @@ def test_parse_tle_valid():
     assert -180.0 <= parsed["longitudeDeg"] <= 180.0
 
 
+def test_parse_tle_3le_with_zero_prefix():
+    """
+    Unit test: confirm line 0 formatted as '0 ISS (ZARYA)' has the leading '0 ' stripped.
+    """
+    tle_with_0 = (
+        "0 ISS (ZARYA)\n"
+        "1 25544U 98067A   24080.52843444  .00015525  00000-0  27827-3 0  9993\n"
+        "2 25544  51.6416 261.2435 0005436 127.3562 334.8519 15.49887756444585"
+    )
+    parsed = parse_tle(tle_with_0)
+    assert parsed["name"] == "ISS (ZARYA)"
+    assert parsed["norad_id"] == 25544
+
+
+def test_parse_tle_2line_no_name():
+    """
+    Unit test: confirm a 2-line TLE (omitting line 0) returns name as None.
+    """
+    tle_2line = (
+        "1 25544U 98067A   24080.52843444  .00015525  00000-0  27827-3 0  9993\n"
+        "2 25544  51.6416 261.2435 0005436 127.3562 334.8519 15.49887756444585"
+    )
+    parsed = parse_tle(tle_2line)
+    assert parsed["name"] is None
+    assert parsed["norad_id"] == 25544
+
+
+
 def test_parse_tle_invalid_lines():
     """
     Unit test: call parse_tle() with fewer than 2 lines.

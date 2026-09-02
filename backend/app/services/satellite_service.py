@@ -1,14 +1,17 @@
+import json
+import logging
+from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
-import json
 
 from app.models.satellites import Satellite, OrbitState, TLERecord, OMMRecord
 from app.services.celestrak_service import fetch_tle_by_norad_id
 from app.services.tle_parser import parse_tle
 from app.services.omm_parser import parse_omm_json
 from app.schemas.satellites import SatelliteAddRequest, SatelliteUpdateRequest, TLEUploadRequest, OMMUploadRequest
+
+logger = logging.getLogger(__name__)
 
 class SatelliteService:
     def __init__(self, session: AsyncSession):
@@ -48,9 +51,11 @@ class SatelliteService:
         raw_tle = await fetch_tle_by_norad_id(norad_id)
         parsed = parse_tle(raw_tle)
 
+        sat_name = parsed.get("name") or "Unknown"
+
         sat = Satellite(
             norad_id=norad_id,
-            name=parsed["name"],
+            name=sat_name,
             international_designator=parsed["international_designator"],
             object_type="payload",
             status="active",
@@ -96,9 +101,25 @@ class SatelliteService:
         if existing:
             return existing
 
+        sat_name = parsed.get("name")
+        if not sat_name:
+            # Fall back to CelesTrak name lookup by NORAD ID parsed from line 1
+            try:
+                celestrak_tle = await fetch_tle_by_norad_id(norad_id)
+                celestrak_parsed = parse_tle(celestrak_tle)
+                sat_name = celestrak_parsed.get("name")
+            except Exception as exc:
+                logger.warning(
+                    f"Could not resolve satellite name for NORAD {norad_id} from CelesTrak: {exc}"
+                )
+                sat_name = None
+
+        if not sat_name:
+            sat_name = "Unknown"
+
         sat = Satellite(
             norad_id=norad_id,
-            name=parsed["name"],
+            name=sat_name,
             international_designator=parsed["international_designator"],
             object_type="payload",
             status="active",
@@ -171,6 +192,9 @@ class SatelliteService:
             raise ValueError(f"Satellite with NORAD ID {norad_id} not found")
 
         parsed = parse_tle(raw_tle)
+
+        if sat.name in ("Unknown", "", "Unknown Object") and parsed.get("name"):
+            sat.name = parsed["name"]
 
         tle = TLERecord(
             line1=parsed["line1"],

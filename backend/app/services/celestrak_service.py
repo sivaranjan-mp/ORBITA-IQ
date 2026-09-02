@@ -3,6 +3,10 @@ from fastapi import HTTPException, status
 import asyncio
 
 CELESTRAK_BASE_URL = "https://celestrak.org/NORAD/elements/gp.php"
+CELESTRAK_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/plain,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 
 
 async def fetch_tle_by_norad_id(norad_id: int, max_retries: int = 3) -> str:
@@ -13,9 +17,7 @@ async def fetch_tle_by_norad_id(norad_id: int, max_retries: int = 3) -> str:
     """
     url = f"{CELESTRAK_BASE_URL}?CATNR={norad_id}&FORMAT=tle"
 
-    async with httpx.AsyncClient(
-        headers={"User-Agent": "Mozilla/5.0 (compatible; ORBITA-IQ/1.0)"}
-    ) as client:
+    async with httpx.AsyncClient(headers=CELESTRAK_HEADERS) as client:
         for attempt in range(max_retries):
             try:
                 response = await client.get(url, timeout=10.0)

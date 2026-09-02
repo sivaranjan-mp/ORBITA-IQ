@@ -18,6 +18,7 @@ from app.schemas.satellites import (
     SatelliteBulkAddResponse,
     SatelliteBulkAddResult,
 )
+from app.services.celestrak_service import CELESTRAK_HEADERS
 from app.services.satellite_service import SatelliteService
 from app.models.satellites import Satellite
 
@@ -69,9 +70,8 @@ async def debug_celestrak(norad_id: int = 25544):
     Temporary debug endpoint to test CelesTrak connection directly and in isolation.
     """
     url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={norad_id}&FORMAT=tle"
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; ORBITA-IQ/1.0)"}
     try:
-        async with httpx.AsyncClient(headers=headers) as client:
+        async with httpx.AsyncClient(headers=CELESTRAK_HEADERS) as client:
             response = await client.get(url, timeout=10.0)
             return {
                 "status_code": response.status_code,

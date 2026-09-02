@@ -88,6 +88,87 @@ def test_add_satellite_manual_success():
     assert data["name"] == "ISS (ZARYA)"
 
 
+def test_add_satellite_manual_2line_fallback_to_celestrak():
+    operator_user = UserProfile(
+        id="user-456",
+        employee_id="EMP-0002",
+        email="operator@example.com",
+        full_name="Operator User",
+        role="operator",
+        is_active=True
+    )
+    app.dependency_overrides[get_current_user] = lambda: operator_user
+
+    mock_db = AsyncMock()
+    mock_db.add = MagicMock()
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = None
+    mock_res.scalar_one.return_value = Satellite(
+        id=uuid.uuid4(),
+        norad_id=25544,
+        name="ISS (ZARYA)",
+        object_type="payload",
+        status="active"
+    )
+    mock_db.execute.return_value = mock_res
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    # 2-line TLE without line 0
+    tle_2line = (
+        "1 25544U 98067A   24080.52843444  .00015525  00000-0  27827-3 0  9993\n"
+        "2 25544  51.6416 261.2435 0005436 127.3562 334.8519 15.49887756444585"
+    )
+    celestrak_3line = "ISS (ZARYA)\n1 25544U 98067A   24080.52843444  .00015525  00000-0  27827-3 0  9993\n2 25544  51.6416 261.2435 0005436 127.3562 334.8519 15.49887756444585"
+
+    with patch("app.services.satellite_service.fetch_tle_by_norad_id", return_value=celestrak_3line) as mock_fetch:
+        response = client.post("/api/v1/satellites/manual", json={"raw_tle": tle_2line})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["noradId"] == 25544
+        assert data["name"] == "ISS (ZARYA)"
+        assert mock_fetch.called
+
+
+def test_add_satellite_manual_3le_with_0_prefix():
+    operator_user = UserProfile(
+        id="user-456",
+        employee_id="EMP-0002",
+        email="operator@example.com",
+        full_name="Operator User",
+        role="operator",
+        is_active=True
+    )
+    app.dependency_overrides[get_current_user] = lambda: operator_user
+
+    mock_db = AsyncMock()
+    mock_db.add = MagicMock()
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = None
+    mock_res.scalar_one.return_value = Satellite(
+        id=uuid.uuid4(),
+        norad_id=25544,
+        name="ISS (ZARYA)",
+        object_type="payload",
+        status="active"
+    )
+    mock_db.execute.return_value = mock_res
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    # 3LE with '0 ' prefix
+    tle_3le = (
+        "0 ISS (ZARYA)\n"
+        "1 25544U 98067A   24080.52843444  .00015525  00000-0  27827-3 0  9993\n"
+        "2 25544  51.6416 261.2435 0005436 127.3562 334.8519 15.49887756444585"
+    )
+
+    response = client.post("/api/v1/satellites/manual", json={"raw_tle": tle_3le})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["noradId"] == 25544
+    assert data["name"] == "ISS (ZARYA)"
+
+
+
 def test_add_satellite_manual_invalid_tle():
     admin_user = UserProfile(
         id="user-123",
@@ -103,7 +184,7 @@ def test_add_satellite_manual_invalid_tle():
     app.dependency_overrides[get_db] = lambda: mock_db
 
     response = client.post("/api/v1/satellites/manual", json={"raw_tle": "INVALID TLE LINE"})
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 def test_add_satellite_manual_unauthenticated():
