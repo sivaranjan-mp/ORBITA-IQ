@@ -33,7 +33,8 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables initialized successfully via Base.metadata.create_all.")
     except Exception as e:
-        logger.warning(f"Note: Could not run Base.metadata.create_all on startup: {e}")
+        logger.exception(f"FATAL: Database schema initialization failed on startup: {e}")
+        raise
 
     init_scheduler()
     yield

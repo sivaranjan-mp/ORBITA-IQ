@@ -34,10 +34,23 @@ comment on table public.catalog_satellites is
 -- Row Level Security
 alter table public.catalog_satellites enable row level security;
 
--- Read policy: Any authenticated or anon query can read catalog items
+-- Read policy: Public / authenticated reference catalog
 drop policy if exists "catalog_satellites_read_all" on public.catalog_satellites;
-create policy "catalog_satellites_read_all" on public.catalog_satellites for select using (true);
+create policy "catalog_satellites_read_all" 
+  on public.catalog_satellites 
+  for select 
+  using (true);
 
--- Write policy: Allow backend service role / admin to insert & update catalog records
-drop policy if exists "catalog_satellites_write_all" on public.catalog_satellites;
-create policy "catalog_satellites_write_all" on public.catalog_satellites for all using (true) with check (true);
+-- Write policy: Restricted strictly to service_role or admin accounts
+drop policy if exists "catalog_satellites_write_restricted" on public.catalog_satellites;
+create policy "catalog_satellites_write_restricted" 
+  on public.catalog_satellites 
+  for all 
+  using (
+    auth.role() = 'service_role' 
+    or (auth.role() = 'authenticated' and public.is_admin())
+  ) 
+  with check (
+    auth.role() = 'service_role' 
+    or (auth.role() = 'authenticated' and public.is_admin())
+  );
