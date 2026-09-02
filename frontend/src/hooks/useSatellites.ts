@@ -12,7 +12,7 @@ const MOCK_SATELLITES: Satellite[] = [
     internationalDesignator: "1998-067A",
     objectType: "payload",
     status: "active",
-    ownerOrg: "dev-bypass",
+    ownerOrg: "NASA",
     altitudeKm: 418.5,
     latitudeDeg: 28.53,
     longitudeDeg: -80.65,
@@ -69,7 +69,7 @@ const MOCK_SATELLITES: Satellite[] = [
     internationalDesignator: "2019-074A",
     objectType: "payload",
     status: "active",
-    ownerOrg: "dev-bypass",
+    ownerOrg: "SpaceX",
     altitudeKm: 550.0,
     latitudeDeg: 45.0,
     longitudeDeg: -122.0,
@@ -103,7 +103,7 @@ const MOCK_SATELLITES: Satellite[] = [
 ];
 
 export function useSatellites(scope: "mine" | "all" = "mine") {
-  const { profile } = useAuth();
+  const { profile, session } = useAuth();
   const [satellites, setSatellites] = useState<Satellite[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -116,25 +116,31 @@ export function useSatellites(scope: "mine" | "all" = "mine") {
       try {
         const { data } = await apiClient.get<Satellite[]>(`/satellites?scope=${scope}`);
         if (!cancelled) {
-          if (data && data.length > 0) {
+          if (Array.isArray(data)) {
             setSatellites(data);
           } else {
-            const currentEmployee = profile?.employee_id || "dev-bypass";
-            const mockWithCurrent = MOCK_SATELLITES.map((s, idx) =>
-              idx % 2 === 0 ? { ...s, ownerOrg: currentEmployee } : s
-            );
-            setSatellites(scope === "mine" ? mockWithCurrent.filter(s => s.ownerOrg === currentEmployee) : mockWithCurrent);
+            setSatellites([]);
           }
           setError(null);
         }
-      } catch (err) {
+      } catch {
         if (!cancelled) {
-          const currentEmployee = profile?.employee_id || "dev-bypass";
-          const mockWithCurrent = MOCK_SATELLITES.map((s, idx) =>
-            idx % 2 === 0 ? { ...s, ownerOrg: currentEmployee } : s
-          );
-          setSatellites(scope === "mine" ? mockWithCurrent.filter(s => s.ownerOrg === currentEmployee) : mockWithCurrent);
-          setError(null);
+          const isBypass = import.meta.env.DEV && import.meta.env.VITE_DISABLE_LOGIN === "true";
+          if (isBypass) {
+            const currentEmployee = profile?.employee_id || "dev-bypass";
+            // In dev bypass mode only, assign ISS to current user to test owned vs non-owned rows
+            const mockWithCurrent = MOCK_SATELLITES.map((s, idx) =>
+              idx === 0 ? { ...s, ownerOrg: currentEmployee } : s
+            );
+            setSatellites(
+              scope === "mine"
+                ? mockWithCurrent.filter((s) => s.ownerOrg === currentEmployee)
+                : mockWithCurrent
+            );
+          } else {
+            setSatellites([]);
+            setError("Failed to load satellites.");
+          }
         }
       } finally {
         if (!cancelled) {
@@ -148,7 +154,7 @@ export function useSatellites(scope: "mine" | "all" = "mine") {
     return () => {
       cancelled = true;
     };
-  }, [scope, profile?.employee_id]);
+  }, [scope, profile?.employee_id, session?.user?.id]);
 
   return { satellites, isLoading, error };
 }

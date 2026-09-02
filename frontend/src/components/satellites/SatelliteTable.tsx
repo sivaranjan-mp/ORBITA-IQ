@@ -27,7 +27,7 @@ export function SatelliteTable({
   scope = "mine",
   highlightOwned = scope === "all",
 }: SatelliteTableProps = {}) {
-  const { profile } = useAuth();
+  const { profile, session } = useAuth();
   const { satellites, isLoading } = useSatellites(scope);
   const [query, setQuery] = useState("");
 
@@ -85,11 +85,31 @@ export function SatelliteTable({
 
             {!isLoading &&
               filtered.map((sat) => {
+                const currentEmployeeId = (
+                  profile?.employee_id ||
+                  (session?.user?.user_metadata?.employee_id as string | undefined)
+                )?.trim().toLowerCase();
+
+                const currentUserId = (
+                  profile?.id ||
+                  session?.user?.id
+                )?.trim().toLowerCase();
+
+                const currentUserEmail = (
+                  session?.user?.email
+                )?.trim().toLowerCase();
+
+                const satOwner = sat.ownerOrg?.trim().toLowerCase();
+
                 const isOwner = Boolean(
                   highlightOwned &&
-                  profile?.employee_id &&
-                  sat.ownerOrg &&
-                  sat.ownerOrg.trim().toLowerCase() === profile.employee_id.trim().toLowerCase()
+                  satOwner &&
+                  satOwner !== "unknown" &&
+                  (
+                    (currentEmployeeId && satOwner === currentEmployeeId) ||
+                    (currentUserId && satOwner === currentUserId) ||
+                    (currentUserEmail && satOwner === currentUserEmail)
+                  )
                 );
 
                 return (
@@ -125,13 +145,13 @@ export function SatelliteTable({
                       {sat.altitudeKm != null ? `${sat.altitudeKm.toLocaleString()} km` : "N/A"}
                     </TableCell>
                     <TableCell className={cn("text-right font-mono text-xs", isOwner ? "text-amber-100" : "text-foreground")}>
-                      {sat.latitudeDeg?.toFixed(2)}°
+                      {sat.latitudeDeg != null ? `${sat.latitudeDeg.toFixed(2)}°` : "N/A"}
                     </TableCell>
                     <TableCell className={cn("text-right font-mono text-xs", isOwner ? "text-amber-100" : "text-foreground")}>
-                      {sat.longitudeDeg?.toFixed(2)}°
+                      {sat.longitudeDeg != null ? `${sat.longitudeDeg.toFixed(2)}°` : "N/A"}
                     </TableCell>
                     <TableCell className={cn("text-right font-mono text-xs", isOwner ? "text-amber-100" : "text-foreground")}>
-                      {sat.velocityKmS?.toFixed(2)} km/s
+                      {sat.velocityKmS != null ? `${sat.velocityKmS.toFixed(2)} km/s` : "N/A"}
                     </TableCell>
                     <TableCell>
                       <SatelliteStatusBadge status={sat.status} />
