@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.core.supabase_client import get_admin_client
 from app.dependencies import get_current_user
 from app.schemas.auth import (
     LoginRequest,
     LogoutRequest,
     MessageResponse,
     PasswordResetRequest,
+    ProfileUpdateRequest,
     RefreshRequest,
     TokenResponse,
     UserProfile,
@@ -55,6 +57,31 @@ async def logout(
 @router.get("/me", response_model=UserProfile, summary="Get the current authenticated user's profile")
 async def me(user: UserProfile = Depends(get_current_user)):
     return user
+
+
+@router.patch("/me", response_model=UserProfile, summary="Update the current user's profile details")
+async def update_me(
+    payload: ProfileUpdateRequest,
+    current_user: UserProfile = Depends(get_current_user),
+):
+    update_data = {}
+    if payload.full_name is not None:
+        update_data["full_name"] = payload.full_name.strip()
+    if payload.department is not None:
+        update_data["department"] = payload.department.strip()
+
+    if not update_data:
+        return current_user
+
+    admin = get_admin_client()
+    try:
+        result = admin.table("profiles").update(update_data).eq("id", current_user.id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Profile not found.")
+        return UserProfile(**result.data[0])
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to update profile: {str(exc)}")
+
 
 
 @router.post(

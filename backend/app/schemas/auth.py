@@ -35,6 +35,11 @@ class UserProfile(BaseModel):
     last_login_at: datetime | None = None
 
 
+class ProfileUpdateRequest(BaseModel):
+    full_name: str | None = Field(None, min_length=1, max_length=128)
+    department: str | None = Field(None, max_length=128)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

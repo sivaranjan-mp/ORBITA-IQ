@@ -1,12 +1,13 @@
 import asyncio
 import logging
-from typing import List
+from typing import List, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.schemas.auth import UserProfile
+from app.core.supabase_client import get_admin_client
 from app.schemas.satellites import (
     SatelliteAddRequest,
     SatelliteAddFromTLERequest,
@@ -27,7 +28,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/satellites", tags=["satellites"])
 
 
-def _format_satellite_response(sat: Satellite) -> dict:
+def _get_owner_profiles_map() -> dict[str, str]:
+    try:
+        admin = get_admin_client()
+        result = admin.table("profiles").select("employee_id, full_name").execute()
+        if result and result.data:
+            return {
+                p["employee_id"].strip().upper(): p["full_name"].strip()
+                for p in result.data
+                if p.get("employee_id") and p.get("full_name")
+            }
+    except Exception as exc:
+        logger.warning(f"Could not load owner profiles from Supabase: {exc}")
+    return {}
+
+
+def _format_satellite_response(sat: Satellite, owner_name: Optional[str] = None) -> dict:
+    owner_emp_id = sat.owner_org if sat.owner_org and sat.owner_org != "Unknown" else None
     resp = {
         "id": str(sat.id),
         "noradId": sat.norad_id,
@@ -36,6 +53,8 @@ def _format_satellite_response(sat: Satellite) -> dict:
         "objectType": sat.object_type or "payload",
         "status": sat.status or "active",
         "ownerOrg": sat.owner_org or "Unknown",
+        "ownerName": owner_name,
+        "ownerEmployeeId": owner_emp_id,
         "altitudeKm": None,
         "latitudeDeg": None,
         "longitudeDeg": None,
@@ -100,7 +119,15 @@ async def list_satellites(
     else:
         satellites = await service.get_all_satellites()
         
-    return [_format_satellite_response(sat) for sat in satellites]
+    profiles_map = _get_owner_profiles_map()
+    return [
+        _format_satellite_response(
+            sat,
+            owner_name=profiles_map.get((sat.owner_org or "").strip().upper())
+            or (current_user.full_name if (sat.owner_org or "").strip().upper() == current_user.employee_id.strip().upper() else None)
+        )
+        for sat in satellites
+    ]
 
 
 @router.get("/{id}", response_model=SatelliteResponse)
@@ -113,7 +140,11 @@ async def get_satellite(
     sat = await service.get_satellite_by_id(id)
     if not sat:
         raise HTTPException(status_code=404, detail="Satellite not found")
-    return _format_satellite_response(sat)
+    profiles_map = _get_owner_profiles_map()
+    owner_name = profiles_map.get((sat.owner_org or "").strip().upper()) or (
+        current_user.full_name if (sat.owner_org or "").strip().upper() == current_user.employee_id.strip().upper() else None
+    )
+    return _format_satellite_response(sat, owner_name=owner_name)
 
 
 @router.post("/norad", response_model=SatelliteResponse)
@@ -127,7 +158,7 @@ async def add_satellite_by_norad(
     service = SatelliteService(db)
     try:
         sat = await service.add_satellite_by_norad(request.norad_id, owner_org=current_user.employee_id)
-        return _format_satellite_response(sat)
+        return _format_satellite_response(sat, owner_name=current_user.full_name)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException as e:
@@ -149,7 +180,7 @@ async def add_satellite_manual(
     service = SatelliteService(db)
     try:
         sat = await service.add_satellite_from_tle(request.raw_tle, owner_org=current_user.employee_id)
-        return _format_satellite_response(sat)
+        return _format_satellite_response(sat, owner_name=current_user.full_name)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException as e:
@@ -228,7 +259,9 @@ async def update_satellite(
     service = SatelliteService(db)
     try:
         sat = await service.update_satellite(id, request)
-        return _format_satellite_response(sat)
+        profiles_map = _get_owner_profiles_map()
+        owner_name = profiles_map.get((sat.owner_org or "").strip().upper())
+        return _format_satellite_response(sat, owner_name=owner_name)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

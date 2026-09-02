@@ -249,10 +249,52 @@ async def test_add_satellite_from_tle_regression_orbit_state_access():
     assert sat.orbit_state.velocity_km_s == 7.65
 
     # Assert _format_satellite_response operates smoothly without async lazy load errors
-    formatted = _format_satellite_response(sat)
+    formatted = _format_satellite_response(sat, owner_name="Admin User")
     assert formatted["noradId"] == 25544
     assert formatted["altitudeKm"] == 420.0
     assert formatted["latitudeDeg"] == 10.5
     assert formatted["longitudeDeg"] == -20.5
     assert formatted["velocityKmS"] == 7.65
     assert formatted["name"] == "ISS (ZARYA)"
+    assert formatted["ownerName"] == "Admin User"
+    assert formatted["ownerEmployeeId"] == "EMP-0001"
+
+
+def test_list_satellites_returns_owner_details():
+    admin_user = UserProfile(
+        id="user-123",
+        employee_id="EMP-0001",
+        email="admin@example.com",
+        full_name="Admin User",
+        role="admin",
+        is_active=True
+    )
+    app.dependency_overrides[get_current_user] = lambda: admin_user
+
+    mock_db = AsyncMock()
+    sat = Satellite(
+        id=uuid.uuid4(),
+        norad_id=25544,
+        name="ISS (ZARYA)",
+        owner_org="EMP-0001",
+        object_type="payload",
+        status="active"
+    )
+    mock_res = MagicMock()
+    mock_res.scalars().all.return_value = [sat]
+    mock_db.execute.return_value = mock_res
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    mock_admin = MagicMock()
+    mock_admin.table.return_value.select.return_value.execute.return_value.data = [
+        {"employee_id": "EMP-0001", "full_name": "Admin User"}
+    ]
+
+    with patch("app.api.v1.endpoints.satellites.get_admin_client", return_value=mock_admin):
+        response = client.get("/api/v1/satellites?scope=all")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["ownerName"] == "Admin User"
+        assert data[0]["ownerEmployeeId"] == "EMP-0001"
+

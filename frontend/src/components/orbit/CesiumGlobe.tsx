@@ -141,7 +141,7 @@ export function CesiumGlobe({ satellites, focusedId, onSelect }: CesiumGlobeProp
         description: `
           <table>
             <tr><td>NORAD ID</td><td>${sat.noradId}</td></tr>
-            <tr><td>Owner</td><td>${sat.ownerOrg}</td></tr>
+            <tr><td>Owner</td><td>${sat.ownerName ? `${sat.ownerName} (${sat.ownerEmployeeId || sat.ownerOrg})` : (sat.ownerEmployeeId || sat.ownerOrg || "Unknown")}</td></tr>
             <tr><td>Altitude</td><td>${sat.altitudeKm != null ? `${sat.altitudeKm} km` : "N/A"}</td></tr>
             <tr><td>Inclination</td><td>${sat.inclinationDeg != null ? `${sat.inclinationDeg.toFixed(1)}°` : "N/A"}</td></tr>
             <tr><td>Period</td><td>${sat.periodMinutes != null ? `${sat.periodMinutes.toFixed(1)} min` : "N/A"}</td></tr>

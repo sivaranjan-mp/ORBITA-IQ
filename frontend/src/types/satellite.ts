@@ -9,6 +9,8 @@ export interface Satellite {
   objectType: ObjectType;
   status: SatelliteStatus;
   ownerOrg: string;
+  ownerName?: string | null;
+  ownerEmployeeId?: string | null;
   altitudeKm: number | null;
   latitudeDeg?: number | null;
   longitudeDeg?: number | null;

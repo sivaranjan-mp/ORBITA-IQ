@@ -35,7 +35,12 @@ export function SatelliteTable({
     const q = query.trim().toLowerCase();
     if (!q) return satellites;
     return satellites.filter(
-      (sat) => sat.name.toLowerCase().includes(q) || String(sat.noradId).includes(q)
+      (sat) =>
+        sat.name.toLowerCase().includes(q) ||
+        String(sat.noradId).includes(q) ||
+        (sat.ownerName && sat.ownerName.toLowerCase().includes(q)) ||
+        (sat.ownerEmployeeId && sat.ownerEmployeeId.toLowerCase().includes(q)) ||
+        (sat.ownerOrg && sat.ownerOrg.toLowerCase().includes(q))
     );
   }, [satellites, query]);
 
@@ -99,7 +104,7 @@ export function SatelliteTable({
                   session?.user?.email
                 )?.trim().toLowerCase();
 
-                const satOwner = sat.ownerOrg?.trim().toLowerCase();
+                const satOwner = (sat.ownerEmployeeId || sat.ownerOrg)?.trim().toLowerCase();
 
                 const isOwner = Boolean(
                   highlightOwned &&
@@ -111,6 +116,12 @@ export function SatelliteTable({
                     (currentUserEmail && satOwner === currentUserEmail)
                   )
                 );
+
+                const primaryOwner = sat.ownerName || sat.ownerEmployeeId || sat.ownerOrg || "Unknown";
+                const secondaryOwner =
+                  (sat.ownerEmployeeId || sat.ownerOrg) && (sat.ownerEmployeeId || sat.ownerOrg) !== primaryOwner
+                    ? (sat.ownerEmployeeId || sat.ownerOrg)
+                    : null;
 
                 return (
                   <TableRow
@@ -132,12 +143,21 @@ export function SatelliteTable({
                       {sat.noradId}
                     </TableCell>
                     {showOwner && (
-                      <TableCell className={cn("text-xs", isOwner ? "text-amber-200 font-medium" : "text-muted-foreground")}>
-                        {sat.ownerOrg}
-                        {isOwner && (
-                          <span className="ml-1.5 inline-block rounded bg-amber-500/20 px-1 py-0.5 text-[10px] font-semibold text-amber-300">
-                            You
-                          </span>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <p className={cn("font-medium text-xs", isOwner ? "text-amber-100" : "text-foreground")}>
+                            {primaryOwner}
+                          </p>
+                          {isOwner && (
+                            <span className="inline-block rounded bg-amber-500/20 px-1 py-0.5 text-[10px] font-semibold text-amber-300">
+                              You
+                            </span>
+                          )}
+                        </div>
+                        {secondaryOwner && (
+                          <p className={cn("font-mono text-[11px]", isOwner ? "text-amber-200/70" : "text-muted-foreground")}>
+                            {secondaryOwner}
+                          </p>
                         )}
                       </TableCell>
                     )}

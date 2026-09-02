@@ -61,6 +61,8 @@ class SatelliteResponse(BaseModel):
     objectType: str
     status: str
     ownerOrg: str
+    ownerName: Optional[str] = None
+    ownerEmployeeId: Optional[str] = None
     altitudeKm: Optional[float] = None
     latitudeDeg: Optional[float] = None
     longitudeDeg: Optional[float] = None
