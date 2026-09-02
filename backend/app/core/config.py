@@ -9,7 +9,7 @@ from functools import lru_cache
 from typing import Union, Annotated
 
 from pydantic import model_validator, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
 
 
 class Settings(BaseSettings):
@@ -24,19 +24,24 @@ class Settings(BaseSettings):
     # ---- App ----
     environment: str = "development"
     frontend_url: str = "http://localhost:5173"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
 
     @field_validator("cors_origins", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, list[str]]) -> list[str]:
         if isinstance(v, str):
-            if v.startswith("[") and v.endswith("]"):
+            v_clean = v.strip()
+            if not v_clean:
+                return ["http://localhost:5173"]
+            if v_clean.startswith("[") and v_clean.endswith("]"):
                 import json
                 try:
-                    return json.loads(v)
+                    parsed = json.loads(v_clean)
+                    if isinstance(parsed, list):
+                        return [str(i).strip() for i in parsed if str(i).strip()]
                 except json.JSONDecodeError:
                     pass
-            return [i.strip() for i in v.split(",") if i.strip()]
+            return [i.strip() for i in v_clean.split(",") if i.strip()]
         return v
 
     @model_validator(mode="after")
