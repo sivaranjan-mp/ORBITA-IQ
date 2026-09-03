@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import * as Cesium from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
@@ -31,6 +31,14 @@ export interface LiveTelemetry {
 }
 
 export type ImageryStyle = "satellite" | "bluemarble" | "night" | "dark";
+
+export interface CesiumGlobeHandle {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetCamera: () => void;
+  viewLeo: () => void;
+  viewGeo: () => void;
+}
 
 export interface CesiumGlobeProps {
   satellites: Satellite[];
@@ -86,24 +94,84 @@ function getImageryProvider(style: ImageryStyle): Cesium.ImageryProvider {
   });
 }
 
-export function CesiumGlobe({
-  satellites,
-  focusedId,
-  onSelect,
-  showAllOrbits = true,
-  showFootprint = true,
-  autoRotate = false,
-  enableLighting = false,
-  enableBloom = true,
-  simSpeed = 1,
-  followSatellite = false,
-  imageryStyle = "satellite",
-  authToken,
-  onTelemetryUpdate,
-  onWsStatusChange,
-}: CesiumGlobeProps) {
+export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(function CesiumGlobe(
+  {
+    satellites,
+    focusedId,
+    onSelect,
+    showAllOrbits = true,
+    showFootprint = true,
+    autoRotate = false,
+    enableLighting = false,
+    enableBloom = true,
+    simSpeed = 1,
+    followSatellite = false,
+    imageryStyle = "satellite",
+    authToken,
+    onTelemetryUpdate,
+    onWsStatusChange,
+  },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Cesium.Viewer | null>(null);
+
+  // Expose camera zoom in / out / reset / presets to parent
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      const camera = viewer.camera;
+      const height = camera.positionCartographic?.height || 20_000_000;
+      camera.zoomIn(Math.max(300_000, height * 0.35));
+    },
+    zoomOut: () => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      const camera = viewer.camera;
+      const height = camera.positionCartographic?.height || 20_000_000;
+      camera.zoomOut(Math.max(800_000, height * 0.45));
+    },
+    resetCamera: () => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(0, 15, 23_500_000),
+        orientation: {
+          heading: 0,
+          pitch: Cesium.Math.toRadians(-90),
+          roll: 0,
+        },
+        duration: 0.9,
+      });
+    },
+    viewLeo: () => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(0, 15, 8_500_000),
+        orientation: {
+          heading: 0,
+          pitch: Cesium.Math.toRadians(-75),
+          roll: 0,
+        },
+        duration: 0.9,
+      });
+    },
+    viewGeo: () => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(0, 10, 42_000_000),
+        orientation: {
+          heading: 0,
+          pitch: Cesium.Math.toRadians(-90),
+          roll: 0,
+        },
+        duration: 1.0,
+      });
+    },
+  }));
 
   const satellitesRef = useRef(satellites);
   satellitesRef.current = satellites;
@@ -812,4 +880,4 @@ export function CesiumGlobe({
       className="absolute inset-0 w-full h-full min-h-[450px] overflow-hidden select-none bg-[#010204]"
     />
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import {
   Globe2,
   Sun,
@@ -18,15 +18,23 @@ import {
   PanelLeftClose,
   Minimize2,
   Maximize2,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 
-import { CesiumGlobe, type LiveTelemetry, type ImageryStyle } from "@/components/orbit/CesiumGlobe";
+import {
+  CesiumGlobe,
+  type CesiumGlobeHandle,
+  type LiveTelemetry,
+  type ImageryStyle,
+} from "@/components/orbit/CesiumGlobe";
 import { SatelliteTrackList } from "@/components/orbit/SatelliteTrackList";
 import { useSatellites } from "@/hooks/useSatellites";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 export function OrbitViewerPage() {
+  const globeRef = useRef<CesiumGlobeHandle>(null);
   const [fleetScope, setFleetScope] = useState<"mine" | "all">("all");
   const { session } = useAuth();
   const {
@@ -379,6 +387,7 @@ export function OrbitViewerPage() {
 
           {/* 3D Cesium WebGL Canvas */}
           <CesiumGlobe
+            ref={globeRef}
             satellites={satellites}
             focusedId={focusedId}
             onSelect={(id) => {
@@ -546,19 +555,64 @@ export function OrbitViewerPage() {
             )
           )}
 
-          {/* Bottom Control Bar: Reset View & Sync Output Action */}
-          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2">
-            <button
-              onClick={() => {
-                setFocusedId(null);
-                setFollowSatellite(false);
-              }}
-              title="Reset View"
-              className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/85 px-2.5 py-1.5 text-xs font-medium text-muted-foreground shadow-lg backdrop-blur-md hover:bg-secondary hover:text-foreground transition-colors"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>Reset Camera</span>
-            </button>
+          {/* Bottom Control Bar: Zoom Controls, Altitude Presets, Reset Camera & Sync Output */}
+          <div className="absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-2 pointer-events-auto">
+            {/* Dedicated Zoom In (+) & Zoom Out (-) Controls */}
+            <div className="flex items-center rounded-lg border border-border/70 bg-card/85 p-0.5 shadow-lg backdrop-blur-md">
+              <button
+                onClick={() => globeRef.current?.zoomIn()}
+                title="Zoom In Closer (+)"
+                className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <div className="h-4 w-[1px] bg-border/60 mx-0.5" />
+              <button
+                onClick={() => globeRef.current?.zoomOut()}
+                title="Zoom Out Farther (-)"
+                className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Orbit Altitude Presets (LEO / GEO / Reset) */}
+            <div className="flex items-center rounded-lg border border-border/70 bg-card/85 p-0.5 shadow-lg backdrop-blur-md">
+              <button
+                onClick={() => {
+                  setFocusedId(null);
+                  setFollowSatellite(false);
+                  globeRef.current?.viewLeo();
+                }}
+                title="Low Earth Orbit Zoom View (8,500 km)"
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+              >
+                LEO View
+              </button>
+              <button
+                onClick={() => {
+                  setFocusedId(null);
+                  setFollowSatellite(false);
+                  globeRef.current?.viewGeo();
+                }}
+                title="Geostationary Space Zoom View (42,000 km)"
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+              >
+                GEO View
+              </button>
+              <button
+                onClick={() => {
+                  setFocusedId(null);
+                  setFollowSatellite(false);
+                  globeRef.current?.resetCamera();
+                }}
+                title="Reset Camera (Global Space View)"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset</span>
+              </button>
+            </div>
 
             <button
               onClick={() => instantSync()}
