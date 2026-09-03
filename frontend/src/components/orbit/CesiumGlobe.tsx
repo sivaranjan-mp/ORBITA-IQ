@@ -169,10 +169,10 @@ export function CesiumGlobe({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Suppress Ion warning popup
+    // Use real public Cesium Ion default token — allows terrain & built-in assets
     Cesium.Ion.defaultAccessToken =
       import.meta.env.VITE_CESIUM_ION_TOKEN ||
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy";
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NmViZGJjMS05N2Q3LTRlMTEtODNlMy05N2I2YWMyOGI1MDQiLCJpZCI6OTYxMzAsImlhdCI6MTY1NzY0MTU1N30.NImGHf1V8K8mT7MQXR6BN5sI5vmlCMTlHGnHdvFLVpM";
 
     const viewer = new Cesium.Viewer(containerRef.current, {
       baseLayerPicker: false,
@@ -187,6 +187,13 @@ export function CesiumGlobe({
       selectionIndicator: false,
       shouldAnimate: true,
       orderIndependentTranslucency: true,
+      // Provide a guaranteed offline base layer so the globe always renders
+      baseLayer: Cesium.ImageryLayer.fromProviderAsync(
+        Cesium.TileMapServiceImageryProvider.fromUrl(
+          Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII")
+        ),
+        {}
+      ),
       contextOptions: {
         webgl: {
           alpha: false, // Deep space opaque rendering for maximum contrast & crisp stars
@@ -253,20 +260,27 @@ export function CesiumGlobe({
     if (scene.moon) scene.moon.show = true;
 
     // High Dynamic Range & Space Bloom Post-Processing
-    scene.highDynamicRange = true;
-    if (scene.postProcessStages) {
-      if (scene.postProcessStages.fxaa) {
-        scene.postProcessStages.fxaa.enabled = true; // Ultra-smooth anti-aliased orbits and horizons
+    try {
+      if ("highDynamicRange" in scene) {
+        (scene as unknown as { highDynamicRange: boolean }).highDynamicRange = true;
       }
-      if (scene.postProcessStages.bloom) {
-        scene.postProcessStages.bloom.enabled = enableBloom;
-        scene.postProcessStages.bloom.uniforms.contrast = 118.0;
-        scene.postProcessStages.bloom.uniforms.brightness = -0.15;
-        scene.postProcessStages.bloom.uniforms.glowOnly = false;
-        scene.postProcessStages.bloom.uniforms.delta = 1.0;
-        scene.postProcessStages.bloom.uniforms.sigma = 2.0;
+    } catch { /* HDR not supported in this build */ }
+
+    try {
+      if (scene.postProcessStages) {
+        if (scene.postProcessStages.fxaa) {
+          scene.postProcessStages.fxaa.enabled = true;
+        }
+        if (scene.postProcessStages.bloom) {
+          scene.postProcessStages.bloom.enabled = enableBloom;
+          scene.postProcessStages.bloom.uniforms.contrast = 118.0;
+          scene.postProcessStages.bloom.uniforms.brightness = -0.15;
+          scene.postProcessStages.bloom.uniforms.glowOnly = false;
+          scene.postProcessStages.bloom.uniforms.delta = 1.0;
+          scene.postProcessStages.bloom.uniforms.sigma = 2.0;
+        }
       }
-    }
+    } catch { /* Post-processing not available */ }
 
     // Zoom limits
     scene.screenSpaceCameraController.minimumZoomDistance = 80_000;
