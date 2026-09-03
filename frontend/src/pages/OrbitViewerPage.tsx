@@ -39,7 +39,7 @@ export function OrbitViewerPage() {
   const [showAllOrbits, setShowAllOrbits] = useState(true);
   const [showFootprint, setShowFootprint] = useState(true);
   const [autoRotate, setAutoRotate] = useState(false);
-  const [enableLighting, setEnableLighting] = useState(true);
+  const [enableLighting, setEnableLighting] = useState(false);
   const [enableBloom, setEnableBloom] = useState(true);
   const [followSatellite, setFollowSatellite] = useState(false);
   const [simSpeed, setSimSpeed] = useState<number>(1);

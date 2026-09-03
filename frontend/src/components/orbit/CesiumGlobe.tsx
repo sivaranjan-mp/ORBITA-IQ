@@ -251,10 +251,9 @@ export function CesiumGlobe({
     viewer.scene.globe.preloadAncestors = false;
 
     const scene = viewer.scene;
-    scene.requestRenderMode = true;
-    scene.maximumRenderTimeChange = Infinity;
+    scene.requestRenderMode = false; // Continuous smooth 60fps WebGL rendering so imagery tiles decode and stream immediately
 
-    scene.globe.baseColor = Cesium.Color.fromCssColorString("#02050D");
+    scene.globe.baseColor = Cesium.Color.fromCssColorString("#0C2340");
     scene.backgroundColor = Cesium.Color.fromCssColorString("#010204");
     scene.globe.enableLighting = enableLighting;
 
@@ -447,9 +446,10 @@ export function CesiumGlobe({
       if (isCancelled || !viewerRef.current) return;
 
       const layers = viewer.imageryLayers;
-      layers.removeAll();
       layers.addImageryProvider(provider);
-      viewer.scene.requestRender();
+      while (layers.length > 1) {
+        layers.remove(layers.get(0));
+      }
     };
 
     applyImagery();
@@ -556,38 +556,46 @@ export function CesiumGlobe({
           outlineWidth: isFocused ? 3 : 1.5,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
-        label: {
-          text: sat.name,
-          font: isFocused ? "bold 12px 'Inter', sans-serif" : "10px 'Inter', sans-serif",
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          fillColor: isFocused ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString("#E2E8F0"),
-          outlineColor: Cesium.Color.fromCssColorString("#060B14"),
-          outlineWidth: 3,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: new Cesium.Cartesian2(0, -14),
-          show: isFocused || satellites.length <= 15,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50_000_000),
-        },
+        label:
+          isFocused || satellites.length <= 15
+            ? {
+                text: sat.name,
+                font: isFocused ? "bold 12px 'Inter', sans-serif" : "10px 'Inter', sans-serif",
+                style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                fillColor: isFocused ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString("#E2E8F0"),
+                outlineColor: Cesium.Color.fromCssColorString("#060B14"),
+                outlineWidth: 3,
+                verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                pixelOffset: new Cesium.Cartesian2(0, -14),
+                show: isFocused || satellites.length <= 15,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50_000_000),
+              }
+            : undefined,
       });
 
-      // 3D Full Orbit Trajectory ribbon (precomputed and memoized)
+      // 3D Orbit Trajectory ribbon:
+      // Only generate polylines for the focused satellite or when fleet <= 25.
+      // For 600+ satellites, generating 611 polylines simultaneously causes a 15-second browser hang.
       let orbit: Cesium.Entity | undefined;
-      const orbitPoints = sampleFullOrbit3D(sat, simDate, 72);
-      if (orbitPoints.length > 2) {
-        const positions = orbitPoints.map((p) =>
-          Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters)
-        );
-        orbit = viewer.entities.add({
-          id: `${sat.id}-orbit-path`,
-          polyline: {
-            positions,
-            width: isFocused ? 2.5 : 1.0,
-            material: new Cesium.ColorMaterialProperty(statusColor.withAlpha(0.28)),
-            clampToGround: false,
-            show: showAllOrbitsRef.current || isFocused,
-          },
-        });
+      const shouldDrawOrbit = isFocused || (satellites.length <= 25 && showAllOrbitsRef.current);
+      if (shouldDrawOrbit) {
+        const orbitPoints = sampleFullOrbit3D(sat, simDate, 72);
+        if (orbitPoints.length > 2) {
+          const positions = orbitPoints.map((p) =>
+            Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters)
+          );
+          orbit = viewer.entities.add({
+            id: `${sat.id}-orbit-path`,
+            polyline: {
+              positions,
+              width: isFocused ? 2.5 : 1.0,
+              material: new Cesium.ColorMaterialProperty(statusColor.withAlpha(0.28)),
+              clampToGround: false,
+              show: showAllOrbitsRef.current || isFocused,
+            },
+          });
+        }
       }
 
       entitiesMap.set(sat.id, { marker, orbit, status: sat.status });
@@ -667,7 +675,31 @@ export function CesiumGlobe({
 
     const simDate = getSimulatedDate();
     const statusColor = STATUS_COLOR[focused.status] || STATUS_COLOR.active;
-    const focusEntity = satEntitiesRef.current.get(focused.id)?.marker;
+    const record = satEntitiesRef.current.get(focused.id);
+    const focusEntity = record?.marker;
+
+    // Ensure focused satellite has its 3D orbit trajectory generated on-demand
+    if (record && !record.orbit) {
+      const orbitPoints = sampleFullOrbit3D(focused, simDate, 80);
+      if (orbitPoints.length > 2) {
+        const positions = orbitPoints.map((p) =>
+          Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters)
+        );
+        record.orbit = viewer.entities.add({
+          id: `${focused.id}-orbit-path`,
+          polyline: {
+            positions,
+            width: 2.5,
+            material: new Cesium.PolylineGlowMaterialProperty({
+              glowPower: 0.35,
+              color: statusColor.withAlpha(0.95),
+            }),
+            clampToGround: false,
+            show: true,
+          },
+        });
+      }
+    }
 
     // Pulsing beacon for focused satellite
     if (focusEntity) {
