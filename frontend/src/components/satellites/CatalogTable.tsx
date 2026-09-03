@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Globe2, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, Globe2, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,13 +13,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useAlerts } from "@/hooks/useAlerts";
 import { useAuth } from "@/hooks/useAuth";
 import { useCatalog } from "@/hooks/useCatalog";
+import { formatCollisionDate, formatTcaHorizon } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { ConjunctionAlert } from "@/types/alert";
 
 const REGIMES = ["ALL", "LEO", "MEO", "GEO", "HEO"] as const;
 const OBJECT_TYPES = [
   { value: "all", label: "All Objects" },
+  { value: "conjunction_risk", label: "⚠️ Conjunction Risk" },
   { value: "payload", label: "Payloads" },
   { value: "debris", label: "Debris" },
   { value: "rocket_body", label: "Rocket Bodies" },
@@ -27,6 +31,7 @@ const OBJECT_TYPES = [
 
 export function CatalogTable() {
   const { profile } = useAuth();
+  const { alerts } = useAlerts();
   const isOperatorOrAdmin = profile?.role === "admin" || profile?.role === "operator";
 
   const [searchInput, setSearchInput] = useState("");
@@ -36,6 +41,23 @@ export function CatalogTable() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
   const [trackingId, setTrackingId] = useState<number | null>(null);
+
+  // Map each satellite NORAD ID to its earliest upcoming conjunction alert
+  const collisionMap = useMemo(() => {
+    const map = new Map<number, ConjunctionAlert>();
+    const sortedAlerts = [...alerts].sort(
+      (a, b) => new Date(a.tca).getTime() - new Date(b.tca).getTime()
+    );
+    for (const alert of sortedAlerts) {
+      if (!map.has(alert.primaryNoradId)) {
+        map.set(alert.primaryNoradId, alert);
+      }
+      if (!map.has(alert.secondaryNoradId)) {
+        map.set(alert.secondaryNoradId, alert);
+      }
+    }
+    return map;
+  }, [alerts]);
 
   // Debounce search input by 300ms
   useEffect(() => {
@@ -47,7 +69,7 @@ export function CatalogTable() {
   }, [searchInput]);
 
   const {
-    items,
+    items: rawItems,
     total,
     totalPages,
     isLoading,
@@ -58,10 +80,31 @@ export function CatalogTable() {
   } = useCatalog({
     search: debouncedSearch,
     regime,
-    objectType,
+    objectType: objectType === "conjunction_risk" ? "all" : objectType,
     page,
     limit,
   });
+
+  // Sort satellites with upcoming collisions to the top
+  const items = useMemo(() => {
+    let list = [...rawItems];
+
+    if (objectType === "conjunction_risk") {
+      list = list.filter((sat) => collisionMap.has(sat.noradId));
+    }
+
+    return list.sort((a, b) => {
+      const colA = collisionMap.get(a.noradId);
+      const colB = collisionMap.get(b.noradId);
+
+      if (colA && colB) {
+        return new Date(colA.tca).getTime() - new Date(colB.tca).getTime();
+      }
+      if (colA) return -1;
+      if (colB) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [rawItems, objectType, collisionMap]);
 
   const handleTrack = async (noradId: number) => {
     setTrackingId(noradId);
@@ -274,17 +317,55 @@ export function CatalogTable() {
             {!isLoading &&
               items.map((sat) => {
                 const isCurrentlyTracking = trackingId === sat.noradId;
+                const collision = collisionMap.get(sat.noradId);
+                const opponentName = collision
+                  ? collision.primaryNoradId === sat.noradId
+                    ? collision.secondaryObject
+                    : collision.primarySatellite
+                  : null;
 
                 return (
-                  <TableRow key={sat.noradId} className="hover:bg-muted/40">
-                    {/* Object Name & COSPAR */}
+                  <TableRow
+                    key={sat.noradId}
+                    className={cn(
+                      "hover:bg-muted/40",
+                      collision && "bg-amber-500/5 hover:bg-amber-500/10 border-l-2 border-l-amber-500"
+                    )}
+                  >
+                    {/* Object Name & COSPAR / Collision Alert */}
                     <TableCell>
-                      <p className="font-medium text-foreground">{sat.name}</p>
-                      {sat.internationalDesignator && (
-                        <p className="font-mono text-xs text-muted-foreground">
-                          {sat.internationalDesignator}
-                        </p>
-                      )}
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-foreground">{sat.name}</p>
+                          {collision && (
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded px-1.5 py-0.2 text-[10px] font-mono font-medium",
+                                collision.riskLevel === "critical"
+                                  ? "bg-red-500/15 text-red-400 border border-red-500/30"
+                                  : collision.riskLevel === "high"
+                                  ? "bg-orange-500/15 text-orange-400 border border-orange-500/30"
+                                  : collision.riskLevel === "medium"
+                                  ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                                  : "bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                              )}
+                            >
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              {collision.riskLevel.toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+
+                        {collision ? (
+                          <p className="font-mono text-[11px] text-amber-400/90 font-medium">
+                            ⚠️ Collision: {formatCollisionDate(collision.tca)} ({formatTcaHorizon(collision.tca)}) vs {opponentName}
+                          </p>
+                        ) : sat.internationalDesignator ? (
+                          <p className="font-mono text-xs text-muted-foreground">
+                            {sat.internationalDesignator}
+                          </p>
+                        ) : null}
+                      </div>
                     </TableCell>
 
                     {/* NORAD ID */}
