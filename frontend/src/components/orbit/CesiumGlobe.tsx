@@ -725,22 +725,86 @@ export function CesiumGlobe({
       velocityKmS: velocity,
     });
 
-    // Camera fly-to
-    const range = Math.max(1_500_000, pt.heightMeters * 2.5);
+    // Camera fly-to with wide full horizontal orbital perspective
+    const range = Math.max(4_500_000, pt.heightMeters * 3.5);
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(
         pt.longitudeDeg,
-        pt.latitudeDeg - 6,
+        pt.latitudeDeg - 10,
         pt.heightMeters + range
       ),
       orientation: {
         heading: Cesium.Math.toRadians(0),
-        pitch: Cesium.Math.toRadians(-50),
+        pitch: Cesium.Math.toRadians(-45),
         roll: 0.0,
       },
       duration: 1.2,
     });
   }, [focusedId, showFootprint, getSimulatedDate, onTelemetryUpdate]);
+
+  // 8. Fleet Orbits and Footprints (Rendered for My Fleet <= 25 satellites)
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+
+    // Clean previous fleet entities
+    const fleetEntities = viewer.entities.values.filter((e) =>
+      e.id.startsWith("fleet-orbit-") || e.id.startsWith("fleet-footprint-")
+    );
+    fleetEntities.forEach((e) => viewer.entities.remove(e));
+
+    if (satellites.length <= 25) {
+      const simDate = getSimulatedDate();
+      satellites.forEach((sat) => {
+        if (sat.id === focusedId) return; // focused satellite has its own highlighted entities
+
+        const statusColor = STATUS_COLOR[sat.status] || STATUS_COLOR.active;
+
+        // 3D Orbit ribbon for all my fleet satellites
+        if (showAllOrbits) {
+          const orbitPoints = sampleFullOrbit3D(sat, simDate, 72);
+          if (orbitPoints.length > 2) {
+            const positions = orbitPoints.map((p) =>
+              Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters)
+            );
+            viewer.entities.add({
+              id: `fleet-orbit-${sat.id}`,
+              polyline: {
+                positions,
+                width: 1.2,
+                material: new Cesium.ColorMaterialProperty(statusColor.withAlpha(0.35)),
+                clampToGround: false,
+                show: true,
+              },
+            });
+          }
+        }
+
+        // Coverage Footprint ellipse for all my fleet satellites
+        if (showFootprint) {
+          const footprintMeters = calculateFootprintRadiusMeters(sat);
+          viewer.entities.add({
+            id: `fleet-footprint-${sat.id}`,
+            position: new Cesium.CallbackPositionProperty(() => {
+              const simTime = new Date(Date.now() + simTimeOffsetMsRef.current);
+              const p = computeSubSatellitePoint(sat, simTime);
+              if (!p) return undefined;
+              return Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, 0);
+            }, false),
+            ellipse: {
+              semiMajorAxis: footprintMeters,
+              semiMinorAxis: footprintMeters,
+              material: new Cesium.ColorMaterialProperty(statusColor.withAlpha(0.08)),
+              outline: true,
+              outlineColor: new Cesium.ConstantProperty(statusColor.withAlpha(0.35)),
+              outlineWidth: 1.0,
+              height: 0,
+            },
+          });
+        }
+      });
+    }
+  }, [satellites, showAllOrbits, showFootprint, focusedId, getSimulatedDate]);
 
   return (
     <div
