@@ -247,16 +247,31 @@ export function CesiumGlobe({
       infoBox: false,
       selectionIndicator: false,
       shouldAnimate: true,
-      orderIndependentTranslucency: true,
+      orderIndependentTranslucency: false,
       baseLayer: new Cesium.ImageryLayer(initialProvider),
       contextOptions: {
         webgl: {
           alpha: false,
-          preserveDrawingBuffer: true,
+          preserveDrawingBuffer: false,
           powerPreference: "high-performance",
+          failIfMajorPerformanceCaveat: false,
         },
       },
     });
+
+    // WebGL context loss recovery — automatically re-initialize viewer if GPU context is lost
+    const canvas = containerRef.current?.querySelector("canvas");
+    const handleContextLost = (e: Event) => {
+      e.preventDefault();
+      console.warn("[CesiumGlobe] WebGL context lost — will restore on next gain");
+    };
+    const handleContextRestored = () => {
+      console.info("[CesiumGlobe] WebGL context restored");
+    };
+    if (canvas) {
+      canvas.addEventListener("webglcontextlost", handleContextLost);
+      canvas.addEventListener("webglcontextrestored", handleContextRestored);
+    }
 
     if (viewer.cesiumWidget.creditContainer) {
       (viewer.cesiumWidget.creditContainer as HTMLElement).style.display = "none";
@@ -265,7 +280,7 @@ export function CesiumGlobe({
     viewer.resolutionScale = 1.0;
     viewer.useBrowserRecommendedResolution = true;
     viewer.scene.globe.maximumScreenSpaceError = 4;
-    viewer.scene.globe.tileCacheSize = 200;
+    viewer.scene.globe.tileCacheSize = 100;  // Reduced to prevent GL_OUT_OF_MEMORY
     viewer.scene.globe.preloadAncestors = false;
 
     const scene = viewer.scene;
@@ -277,50 +292,23 @@ export function CesiumGlobe({
     scene.backgroundColor = Cesium.Color.fromCssColorString("#010204");
     scene.globe.enableLighting = enableLighting;
 
+    // SkyBox disabled — loading 6 large cube-map textures causes GL_OUT_OF_MEMORY on shared GPU contexts.
+    // Use the dark space background color instead.
+    if (scene.skyBox) scene.skyBox.show = false;
+    if (scene.sun) scene.sun.show = false;
+    if (scene.moon) scene.moon.show = false;
+    if (scene.skyAtmosphere) scene.skyAtmosphere.show = false;
+    scene.globe.showGroundAtmosphere = false;
+
+    // Bloom post-process DISABLED at init — the bloom fragment shader reliably fails to compile
+    // on shared/integrated WebGL contexts (Chrome on Windows, Vercel hosting) causing context loss.
+    // The user can toggle it via the HDR Glow button after the scene is stable.
     try {
-      scene.skyBox = new Cesium.SkyBox({
-        sources: {
-          positiveX: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_px.jpg"),
-          negativeX: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_mx.jpg"),
-          positiveY: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_py.jpg"),
-          negativeY: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_my.jpg"),
-          positiveZ: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_pz.jpg"),
-          negativeZ: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_mz.jpg"),
-        },
-      });
-      scene.skyBox.show = true;
-    } catch {
-      if (scene.skyBox) scene.skyBox.show = true;
-    }
-
-    scene.globe.showGroundAtmosphere = true;
-    scene.globe.atmosphereLightIntensity = 10.0;
-    scene.globe.atmosphereRayleighScaleHeight = 8500.0;
-    scene.globe.atmosphereMieScaleHeight = 1200.0;
-
-    if (scene.skyAtmosphere) {
-      scene.skyAtmosphere.show = true;
-      scene.skyAtmosphere.atmosphereLightIntensity = 10.0;
-      scene.skyAtmosphere.saturationShift = 0.3;
-      scene.skyAtmosphere.brightnessShift = 0.15;
-      scene.skyAtmosphere.hueShift = -0.02;
-    }
-
-    if (scene.sun) scene.sun.show = true;
-    if (scene.moon) scene.moon.show = true;
-
-    try {
-      if (scene.postProcessStages) {
-        scene.postProcessStages.bloom.enabled = enableBloom;
-        scene.postProcessStages.bloom.uniforms.contrast = 110.0;
-        scene.postProcessStages.bloom.uniforms.brightness = -0.15;
-        scene.postProcessStages.bloom.uniforms.glowOnly = false;
-        scene.postProcessStages.bloom.uniforms.delta = 0.9;
-        scene.postProcessStages.bloom.uniforms.sigma = 3.5;
-        scene.postProcessStages.bloom.uniforms.stepSize = 1.0;
+      if (scene.postProcessStages?.bloom) {
+        scene.postProcessStages.bloom.enabled = false;
       }
     } catch {
-      /* ignore */
+      /* ignore — postProcessStages may not be available in all environments */
     }
 
     // High-performance GPU Primitive Collections
@@ -439,9 +427,13 @@ export function CesiumGlobe({
     return () => {
       removeTickListener();
       entityHandler.destroy();
-      scene.primitives.remove(pointCollection);
-      scene.primitives.remove(labelCollection);
-      viewer.destroy();
+      if (canvas) {
+        canvas.removeEventListener("webglcontextlost", handleContextLost);
+        canvas.removeEventListener("webglcontextrestored", handleContextRestored);
+      }
+      try { scene.primitives.remove(pointCollection); } catch { /* already destroyed */ }
+      try { scene.primitives.remove(labelCollection); } catch { /* already destroyed */ }
+      try { viewer.destroy(); } catch { /* already destroyed */ }
       viewerRef.current = null;
       pointCollectionRef.current = null;
       labelCollectionRef.current = null;
@@ -471,11 +463,15 @@ export function CesiumGlobe({
     }
   }, [enableLighting]);
 
-  // 5. Update HDR space bloom dynamically
+  // 5. Update HDR space bloom dynamically (safe toggle — viewer may not support bloom on all GPUs)
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (viewer?.scene?.postProcessStages?.bloom) {
-      viewer.scene.postProcessStages.bloom.enabled = enableBloom;
+    try {
+      if (viewer?.scene?.postProcessStages?.bloom) {
+        viewer.scene.postProcessStages.bloom.enabled = enableBloom;
+      }
+    } catch {
+      /* bloom not supported on this GPU */
     }
   }, [enableBloom]);
 
