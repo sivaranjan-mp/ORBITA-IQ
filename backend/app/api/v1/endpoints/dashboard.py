@@ -29,6 +29,15 @@ async def get_dashboard(
     conj_count_res = await db.execute(select(func.count(ConjunctionAlert.id)))
     has_conj_alerts = (conj_count_res.scalar() or 0) > 0
 
+    if not has_conj_alerts:
+        try:
+            from app.services.alert_service import AlertService
+            service = AlertService(db)
+            await service.seed_simulated_alerts()
+            has_conj_alerts = True
+        except Exception:
+            pass
+
     if has_conj_alerts:
         active_statuses = ["open", "monitoring"]
 

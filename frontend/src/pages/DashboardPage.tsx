@@ -4,6 +4,7 @@ import { AlertsFeedPanel } from "@/components/dashboard/AlertsFeedPanel";
 import { AltitudeTrendChart } from "@/components/dashboard/AltitudeTrendChart";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { SatelliteQuickList } from "@/components/dashboard/SatelliteQuickList";
+import { useAlerts } from "@/hooks/useAlerts";
 import { useDashboard } from "@/hooks/useDashboard";
 import { formatCollisionDateTime, formatCountdown } from "@/lib/format";
 
@@ -11,13 +12,29 @@ import { ConjunctionsTable } from "@/components/conjunctions/ConjunctionsTable";
 import { TimelineChart } from "@/components/conjunctions/TimelineChart";
 
 export function DashboardPage() {
-  const { summary, isLoading, error } = useDashboard();
+  const { summary, isLoading: isDashLoading, error } = useDashboard();
+  const { alerts, isLoading: isAlertsLoading } = useAlerts();
 
   if (error) {
     return <div className="text-destructive font-medium p-4">Error loading dashboard: {error}</div>;
   }
 
-  const upcoming = summary?.next_conjunction;
+  const activeAlertsCount =
+    alerts.length > 0
+      ? alerts.filter((a) => a.status === "open" || a.status === "monitoring" || a.status === "active").length
+      : (summary?.active_alerts ?? 0);
+
+  const highRiskAlertsCount =
+    alerts.length > 0
+      ? alerts.filter((a) => a.riskLevel === "high" || a.riskLevel === "critical").length
+      : (summary?.high_risk_alerts ?? 0);
+
+  const sortedUpcoming = [...alerts]
+    .filter((a) => a.status === "open" || a.status === "monitoring" || a.status === "active")
+    .sort((a, b) => new Date(a.tca).getTime() - new Date(b.tca).getTime());
+
+  const upcoming = sortedUpcoming.length > 0 ? sortedUpcoming[0] : summary?.next_conjunction;
+  const isLoading = isDashLoading && isAlertsLoading;
 
   return (
     <div className="space-y-6">
@@ -39,17 +56,17 @@ export function DashboardPage() {
         />
         <KpiCard
           label="Active Alerts"
-          value={String(summary?.active_alerts ?? "—")}
+          value={String(activeAlertsCount)}
           icon={AlertTriangle}
-          accent="warning"
+          accent={activeAlertsCount > 0 ? "warning" : "default"}
           sublabel="Open + monitoring"
           isLoading={isLoading}
         />
         <KpiCard
           label="High Risk Alerts"
-          value={String(summary?.high_risk_alerts ?? "—")}
+          value={String(highRiskAlertsCount)}
           icon={ShieldAlert}
-          accent="destructive"
+          accent={highRiskAlertsCount > 0 ? "destructive" : "default"}
           sublabel="High + critical risk"
           isLoading={isLoading}
         />
