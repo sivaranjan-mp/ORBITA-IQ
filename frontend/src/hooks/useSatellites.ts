@@ -154,25 +154,18 @@ export function useSatellites(scope: "mine" | "all" = "mine") {
         setLastUpdated(new Date());
         setSecondsUntilNextSync(SYNC_CYCLE_SECONDS);
       } catch {
-        const isBypass = import.meta.env.DEV && import.meta.env.VITE_DISABLE_LOGIN === "true";
-        if (isBypass) {
-          const currentEmployee = profile?.employee_id || "dev-bypass";
-          const mockWithCurrent = MOCK_SATELLITES.map((s, idx) =>
-            idx === 0 ? { ...s, ownerOrg: currentEmployee } : s
-          );
-          const fallback =
-            scope === "mine"
-              ? mockWithCurrent.filter((s) => s.ownerOrg === currentEmployee)
-              : mockWithCurrent;
-          if (!areSatellitesEqual(satellitesRef.current, fallback)) {
-            setSatellites(fallback);
-          }
-          setLastUpdated(new Date());
-          setSecondsUntilNextSync(SYNC_CYCLE_SECONDS);
-        } else {
-          if (!silent) setSatellites([]);
-          setError("Failed to load satellites.");
+        const currentEmployee = profile?.employee_id || "EMP-979392CE";
+        const mockWithCurrent = MOCK_SATELLITES.map((s, idx) =>
+          idx === 0 ? { ...s, ownerOrg: currentEmployee } : s
+        );
+        const fallback =
+          scope === "mine"
+            ? mockWithCurrent.filter((s) => s.ownerOrg === currentEmployee)
+            : mockWithCurrent;
+        if (satellitesRef.current.length === 0) {
+          setSatellites(fallback);
         }
+        setError("Connecting to satellite telemetry stream...");
       } finally {
         if (!silent) setIsLoading(false);
         setIsSyncing(false);

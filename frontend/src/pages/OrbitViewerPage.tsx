@@ -38,11 +38,11 @@ export function OrbitViewerPage() {
   // Orbital View Feature Controls
   const [showAllOrbits, setShowAllOrbits] = useState(true);
   const [showFootprint, setShowFootprint] = useState(true);
-  const [autoRotate, setAutoRotate] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(true);
   const [enableLighting, setEnableLighting] = useState(false);
-  const [enableBloom, setEnableBloom] = useState(true);
+  const [enableBloom, setEnableBloom] = useState(false);
   const [followSatellite, setFollowSatellite] = useState(false);
-  const [simSpeed, setSimSpeed] = useState<number>(1);
+  const [simSpeed, setSimSpeed] = useState<number>(5);
   const [imageryStyle, setImageryStyle] = useState<ImageryStyle>("satellite");
 
   // Real-time telemetry state for focused object
