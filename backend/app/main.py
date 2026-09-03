@@ -38,8 +38,9 @@ async def lifespan(app: FastAPI):
         schema_status = await verify_and_heal_schema(engine)
         logger.info(f"Startup schema check completed: {schema_status}")
     except Exception as e:
-        logger.exception(f"FATAL: Database schema initialization failed on startup: {e}")
-        raise
+        logger.error(f"Database schema initialization warning on startup: {e}")
+        if settings.environment == "production":
+            raise
 
     init_scheduler()
     yield

@@ -2,13 +2,35 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/cesium/:match*",
+      "destination": "/cesium/:match*"
+    },
+    {
+      "source": "/assets/:match*",
+      "destination": "/assets/:match*"
+    },
+    {
+      "source": "/((?!cesium|assets|favicon.ico|.*\\..*).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
+    {
+      "source": "/cesium/Workers/(.*)",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/javascript"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
     {
       "source": "/(.*)",
       "headers": [

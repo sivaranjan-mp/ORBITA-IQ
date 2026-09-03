@@ -126,6 +126,10 @@ export function CesiumGlobe({
   const labelCollectionRef = useRef<Cesium.LabelCollection | null>(null);
   const focusedLabelRef = useRef<Cesium.Label | null>(null);
 
+  // High-performance GPU Polyline collection for full 3D orbital trajectory ribbons
+  const polylineCollectionRef = useRef<Cesium.PolylineCollection | null>(null);
+  const polylinesMapRef = useRef<Map<string, Cesium.Polyline>>(new Map());
+
   // Track virtual simulated time offset (milliseconds)
   const simTimeOffsetMsRef = useRef<number>(0);
   const lastRealTimeRef = useRef<number>(Date.now());
@@ -152,7 +156,7 @@ export function CesiumGlobe({
           "http://localhost:8000/api/v1";
 
         const wsBase = apiBase.replace(/^http/, "ws").replace(/\/$/, "");
-        
+
         const token =
           authToken ||
           (() => {
@@ -224,7 +228,7 @@ export function CesiumGlobe({
     };
   }, [authToken, onWsStatusChange]);
 
-  // 2. Initialize Cesium Viewer with High-Speed Continuous WebGL Engine
+  // 2. Initialize Cesium Viewer with Guaranteed Base Layer and GPU Primitive Pipelines
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -232,9 +236,7 @@ export function CesiumGlobe({
       import.meta.env.VITE_CESIUM_ION_TOKEN ||
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NmViZGJjMS05N2Q3LTRlMTEtODNlMy05N2I2YWMyOGI1MDQiLCJpZCI6OTYxMzAsImlhdCI6MTY1NzY0MTU1N30.NImGHf1V8K8mT7MQXR6BN5sI5vmlCMTlHGnHdvFLVpM";
 
-    // Immediate synchronous base layer: Earth renders on frame 0 in <0.5s!
-    const initialProvider = getImageryProvider(imageryStyle);
-
+    // Guaranteed local offline NaturalEarthII base layer so Earth always renders on frame 0
     const viewer = new Cesium.Viewer(containerRef.current, {
       baseLayerPicker: false,
       geocoder: false,
@@ -247,31 +249,21 @@ export function CesiumGlobe({
       infoBox: false,
       selectionIndicator: false,
       shouldAnimate: true,
-      orderIndependentTranslucency: false,
-      baseLayer: new Cesium.ImageryLayer(initialProvider),
+      orderIndependentTranslucency: true,
+      baseLayer: Cesium.ImageryLayer.fromProviderAsync(
+        Cesium.TileMapServiceImageryProvider.fromUrl(
+          Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII")
+        ),
+        {}
+      ),
       contextOptions: {
         webgl: {
           alpha: false,
-          preserveDrawingBuffer: false,
+          preserveDrawingBuffer: true,
           powerPreference: "high-performance",
-          failIfMajorPerformanceCaveat: false,
         },
       },
     });
-
-    // WebGL context loss recovery — automatically re-initialize viewer if GPU context is lost
-    const canvas = containerRef.current?.querySelector("canvas");
-    const handleContextLost = (e: Event) => {
-      e.preventDefault();
-      console.warn("[CesiumGlobe] WebGL context lost — will restore on next gain");
-    };
-    const handleContextRestored = () => {
-      console.info("[CesiumGlobe] WebGL context restored");
-    };
-    if (canvas) {
-      canvas.addEventListener("webglcontextlost", handleContextLost);
-      canvas.addEventListener("webglcontextrestored", handleContextRestored);
-    }
 
     if (viewer.cesiumWidget.creditContainer) {
       (viewer.cesiumWidget.creditContainer as HTMLElement).style.display = "none";
@@ -280,11 +272,11 @@ export function CesiumGlobe({
     viewer.resolutionScale = 1.0;
     viewer.useBrowserRecommendedResolution = true;
     viewer.scene.globe.maximumScreenSpaceError = 4;
-    viewer.scene.globe.tileCacheSize = 100;  // Reduced to prevent GL_OUT_OF_MEMORY
+    viewer.scene.globe.tileCacheSize = 200;
     viewer.scene.globe.preloadAncestors = false;
 
     const scene = viewer.scene;
-    // Continuous 60fps WebGL rendering so tiles and satellites NEVER freeze or stay black!
+    // Continuous 60fps WebGL rendering so tiles and satellites NEVER freeze or stay black
     scene.requestRenderMode = false;
 
     // Oceanic blue base so Earth is immediately visible and recognizable
@@ -292,23 +284,52 @@ export function CesiumGlobe({
     scene.backgroundColor = Cesium.Color.fromCssColorString("#010204");
     scene.globe.enableLighting = enableLighting;
 
-    // SkyBox disabled — loading 6 large cube-map textures causes GL_OUT_OF_MEMORY on shared GPU contexts.
-    // Use the dark space background color instead.
-    if (scene.skyBox) scene.skyBox.show = false;
-    if (scene.sun) scene.sun.show = false;
-    if (scene.moon) scene.moon.show = false;
-    if (scene.skyAtmosphere) scene.skyAtmosphere.show = false;
-    scene.globe.showGroundAtmosphere = false;
-
-    // Bloom post-process DISABLED at init — the bloom fragment shader reliably fails to compile
-    // on shared/integrated WebGL contexts (Chrome on Windows, Vercel hosting) causing context loss.
-    // The user can toggle it via the HDR Glow button after the scene is stable.
     try {
-      if (scene.postProcessStages?.bloom) {
-        scene.postProcessStages.bloom.enabled = false;
+      scene.skyBox = new Cesium.SkyBox({
+        sources: {
+          positiveX: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_px.jpg"),
+          negativeX: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_mx.jpg"),
+          positiveY: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_py.jpg"),
+          negativeY: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_my.jpg"),
+          positiveZ: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_pz.jpg"),
+          negativeZ: Cesium.buildModuleUrl("Assets/Textures/SkyBox/tycho2t3_80_mz.jpg"),
+        },
+      });
+      scene.skyBox.show = true;
+    } catch {
+      if (scene.skyBox) scene.skyBox.show = true;
+    }
+
+    scene.globe.showGroundAtmosphere = true;
+    scene.globe.atmosphereLightIntensity = 10.0;
+    scene.globe.atmosphereRayleighScaleHeight = 8500.0;
+    scene.globe.atmosphereMieScaleHeight = 1200.0;
+
+    if (scene.skyAtmosphere) {
+      scene.skyAtmosphere.show = true;
+      scene.skyAtmosphere.atmosphereLightIntensity = 10.0;
+      scene.skyAtmosphere.saturationShift = 0.3;
+      scene.skyAtmosphere.brightnessShift = 0.15;
+      scene.skyAtmosphere.hueShift = -0.02;
+    }
+
+    if (scene.sun) scene.sun.show = true;
+    if (scene.moon) scene.moon.show = true;
+
+    try {
+      if (scene.postProcessStages) {
+        if (scene.postProcessStages.bloom) {
+          scene.postProcessStages.bloom.enabled = enableBloom;
+          scene.postProcessStages.bloom.uniforms.contrast = 110.0;
+          scene.postProcessStages.bloom.uniforms.brightness = -0.15;
+          scene.postProcessStages.bloom.uniforms.glowOnly = false;
+          scene.postProcessStages.bloom.uniforms.delta = 0.9;
+          scene.postProcessStages.bloom.uniforms.sigma = 3.5;
+          scene.postProcessStages.bloom.uniforms.stepSize = 1.0;
+        }
       }
     } catch {
-      /* ignore — postProcessStages may not be available in all environments */
+      /* ignore */
     }
 
     // High-performance GPU Primitive Collections
@@ -316,9 +337,18 @@ export function CesiumGlobe({
     scene.primitives.add(pointCollection);
     pointCollectionRef.current = pointCollection;
 
+    const polylineCollection = new Cesium.PolylineCollection();
+    scene.primitives.add(polylineCollection);
+    polylineCollectionRef.current = polylineCollection;
+
     const labelCollection = new Cesium.LabelCollection();
     scene.primitives.add(labelCollection);
     labelCollectionRef.current = labelCollection;
+
+    // Camera zoom boundaries
+    scene.screenSpaceCameraController.minimumZoomDistance = 150_000;
+    scene.screenSpaceCameraController.maximumZoomDistance = 35_000_000;
+    scene.screenSpaceCameraController.enableCollisionDetection = true;
 
     // Initial camera view over Earth
     viewer.camera.setView({
@@ -420,42 +450,60 @@ export function CesiumGlobe({
       }
     });
 
+    // Resize observer to handle dynamic dashboard flex/grid container resizing
+    const resizeObserver = new ResizeObserver(() => {
+      viewer.resize();
+    });
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
     viewerRef.current = viewer;
 
     const pointsMap = pointsMapRef.current;
+    const polylinesMap = polylinesMapRef.current;
 
     return () => {
+      resizeObserver.disconnect();
       removeTickListener();
       entityHandler.destroy();
-      if (canvas) {
-        canvas.removeEventListener("webglcontextlost", handleContextLost);
-        canvas.removeEventListener("webglcontextrestored", handleContextRestored);
-      }
-      try { scene.primitives.remove(pointCollection); } catch { /* already destroyed */ }
-      try { scene.primitives.remove(labelCollection); } catch { /* already destroyed */ }
-      try { viewer.destroy(); } catch { /* already destroyed */ }
+      scene.primitives.remove(pointCollection);
+      scene.primitives.remove(polylineCollection);
+      scene.primitives.remove(labelCollection);
+      viewer.destroy();
       viewerRef.current = null;
       pointCollectionRef.current = null;
+      polylineCollectionRef.current = null;
       labelCollectionRef.current = null;
       pointsMap.clear();
+      polylinesMap.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 3. Instant Earth Imagery Switcher (<0.02s response, no async delay)
+  // 3. High-Resolution Earth Imagery Layer Management
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
 
-    const provider = getImageryProvider(imageryStyle);
-    const layers = viewer.imageryLayers;
-    layers.addImageryProvider(provider);
-    while (layers.length > 1) {
-      layers.remove(layers.get(0));
+    try {
+      const provider = getImageryProvider(imageryStyle);
+      const layers = viewer.imageryLayers;
+
+      // Add high-resolution overlay
+      const overlayLayer = layers.addImageryProvider(provider);
+      overlayLayer.alpha = 1.0;
+
+      // Ensure base NaturalEarthII remains if remote tiles are loading or fail
+      while (layers.length > 2) {
+        layers.remove(layers.get(1));
+      }
+    } catch {
+      /* fallback to offline baseLayer */
     }
   }, [imageryStyle]);
 
-  // 4. Update lighting dynamically in 0.001s
+  // 4. Update lighting dynamically
   useEffect(() => {
     const viewer = viewerRef.current;
     if (viewer?.scene?.globe) {
@@ -463,15 +511,11 @@ export function CesiumGlobe({
     }
   }, [enableLighting]);
 
-  // 5. Update HDR space bloom dynamically (safe toggle — viewer may not support bloom on all GPUs)
+  // 5. Update HDR space bloom dynamically
   useEffect(() => {
     const viewer = viewerRef.current;
-    try {
-      if (viewer?.scene?.postProcessStages?.bloom) {
-        viewer.scene.postProcessStages.bloom.enabled = enableBloom;
-      }
-    } catch {
-      /* bloom not supported on this GPU */
+    if (viewer?.scene?.postProcessStages?.bloom) {
+      viewer.scene.postProcessStages.bloom.enabled = enableBloom;
     }
   }, [enableBloom]);
 
@@ -528,7 +572,52 @@ export function CesiumGlobe({
     });
   }, [satellites, getSimulatedDate]);
 
-  // 7. Instant Focus Selection Styling & Ground Track / Footprint
+  // 7. Render 3D Orbital Trajectories for Fleet
+  useEffect(() => {
+    const polylineCollection = polylineCollectionRef.current;
+    if (!polylineCollection) return;
+
+    const polylinesMap = polylinesMapRef.current;
+    const simDate = getSimulatedDate();
+
+    // Clear all existing polylines
+    polylineCollection.removeAll();
+    polylinesMap.clear();
+
+    if (!showAllOrbits && !focusedId) return;
+
+    // Determine which satellites to render orbit paths for
+    const satellitesToRender = showAllOrbits
+      ? satellites
+      : satellites.filter((s) => s.id === focusedId);
+
+    satellitesToRender.forEach((sat) => {
+      const isFocused = sat.id === focusedId;
+      const orbitPoints = sampleFullOrbit3D(sat, simDate, isFocused ? 72 : 48);
+      if (orbitPoints.length < 3) return;
+
+      const positions = orbitPoints.map((p) =>
+        Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters)
+      );
+
+      const statusColor = STATUS_COLOR[sat.status] || STATUS_COLOR.active;
+      const lineColor = isFocused
+        ? Cesium.Color.fromCssColorString("#00F2FE").withAlpha(0.95)
+        : statusColor.withAlpha(0.4);
+
+      const polyline = polylineCollection.add({
+        positions,
+        width: isFocused ? 2.5 : 1.2,
+        material: Cesium.Material.fromType("Color", {
+          color: lineColor,
+        }),
+      });
+
+      polylinesMap.set(sat.id, polyline);
+    });
+  }, [satellites, showAllOrbits, focusedId, getSimulatedDate]);
+
+  // 8. Instant Focus Selection Styling & Ground Track / Footprint
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
@@ -545,7 +634,7 @@ export function CesiumGlobe({
       pt.outlineWidth = isFocused ? 3 : 1.5;
     }
 
-    // Clean up previous focus entities (orbit line, pulse, ground track, footprint, nadir beam)
+    // Clean up previous focus entities (ground track, footprint, nadir beam)
     const focusSpecific = viewer.entities.values.filter((e) =>
       e.id.startsWith("focused-")
     );
@@ -590,113 +679,41 @@ export function CesiumGlobe({
       });
     }
 
-    // Glowing 3D Orbit Trajectory Ribbon
-    if (showAllOrbits) {
-      const orbitPoints = sampleFullOrbit3D(focused, simDate, 80);
-      if (orbitPoints.length > 2) {
-        const positions = orbitPoints.map((p) =>
-          Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters)
-        );
-        viewer.entities.add({
-          id: "focused-orbit-path",
-          polyline: {
-            positions,
-            width: 2.5,
-            material: new Cesium.PolylineGlowMaterialProperty({
-              glowPower: 0.35,
-              color: statusColor.withAlpha(0.95),
-            }),
-            clampToGround: false,
-            show: true,
-          },
-        });
-      }
+    // Nadir Ground Footprint Disk
+    if (showFootprint) {
+      const footprintRadius = calculateFootprintRadiusMeters(focused);
+      viewer.entities.add({
+        id: "focused-footprint",
+        position: Cesium.Cartesian3.fromDegrees(pt.longitudeDeg, pt.latitudeDeg, 0),
+        ellipse: {
+          semiMajorAxis: footprintRadius,
+          semiMinorAxis: footprintRadius,
+          material: statusColor.withAlpha(0.12),
+          outline: true,
+          outlineColor: statusColor.withAlpha(0.6),
+          outlineWidth: 1.5,
+          height: 100,
+        },
+      });
     }
 
-    // Pulsing beacon for focused satellite
-    viewer.entities.add({
-      id: "focused-pulse",
-      position: new Cesium.CallbackPositionProperty(() => {
-        const p = pointsMapRef.current.get(focused.id);
-        return p ? p.position : focusedPos;
-      }, false),
-      point: {
-        pixelSize: new Cesium.CallbackProperty(() => {
-          const t = (Date.now() % 1600) / 1600;
-          return 14 + t * 18;
-        }, false) as unknown as number,
-        color: new Cesium.CallbackProperty(() => {
-          const t = (Date.now() % 1600) / 1600;
-          return statusColor.withAlpha(0.6 * (1 - t));
-        }, false) as unknown as Cesium.Color,
-        outlineColor: statusColor.withAlpha(0.25),
-        outlineWidth: 1,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      },
-    });
-
-    // Predicted Ground Track line
-    const groundTrack = sampleGroundTrack(focused, simDate, 80);
-    if (groundTrack.length > 1) {
-      const positions = groundTrack.flatMap((p) => [p.longitudeDeg, p.latitudeDeg]);
+    // Ground Track Line
+    const groundTrackPoints = sampleGroundTrack(focused, simDate, 60);
+    if (groundTrackPoints.length > 2) {
       viewer.entities.add({
         id: "focused-ground-track",
         polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray(positions),
-          width: 2.2,
+          positions: groundTrackPoints.map((p) =>
+            Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, 500)
+          ),
+          width: 2.0,
           material: new Cesium.PolylineDashMaterialProperty({
-            color: statusColor.withAlpha(0.85),
-            gapColor: Cesium.Color.TRANSPARENT,
-            dashLength: 16.0,
+            color: Cesium.Color.fromCssColorString("#F5A623").withAlpha(0.75),
+            dashLength: 12.0,
           }),
-          clampToGround: true,
         },
       });
     }
-
-    // Sensor Coverage Footprint
-    if (showFootprint) {
-      const footprintMeters = calculateFootprintRadiusMeters(focused);
-      viewer.entities.add({
-        id: "focused-footprint",
-        position: new Cesium.CallbackPositionProperty(() => {
-          const simTime = new Date(Date.now() + simTimeOffsetMsRef.current);
-          const p = computeSubSatellitePoint(focused, simTime);
-          if (!p) return undefined;
-          return Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, 0);
-        }, false),
-        ellipse: {
-          semiMajorAxis: footprintMeters,
-          semiMinorAxis: footprintMeters,
-          material: new Cesium.ColorMaterialProperty(statusColor.withAlpha(0.12)),
-          outline: true,
-          outlineColor: new Cesium.ConstantProperty(statusColor.withAlpha(0.55)),
-          outlineWidth: 1.5,
-          height: 0,
-        },
-      });
-    }
-
-    // Nadir Beam connecting satellite to ground
-    viewer.entities.add({
-      id: "focused-nadir-beam",
-      polyline: {
-        positions: new Cesium.CallbackProperty(() => {
-          const simTime = new Date(Date.now() + simTimeOffsetMsRef.current);
-          const p = computeSubSatellitePoint(focused, simTime);
-          if (!p) return [];
-          return [
-            Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters),
-            Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, 0),
-          ];
-        }, false),
-        width: 1.2,
-        material: new Cesium.PolylineDashMaterialProperty({
-          color: statusColor.withAlpha(0.4),
-          dashLength: 8.0,
-        }),
-      },
-    });
 
     // Update real-time telemetry callback
     const velocity = calculateOrbitalVelocityKmS(focused);
@@ -723,13 +740,12 @@ export function CesiumGlobe({
       },
       duration: 1.2,
     });
-  }, [focusedId, showAllOrbits, showFootprint, getSimulatedDate, onTelemetryUpdate]);
+  }, [focusedId, showFootprint, getSimulatedDate, onTelemetryUpdate]);
 
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full overflow-hidden select-none bg-[#010204]"
-      style={{ minHeight: "450px" }}
+      className="absolute inset-0 w-full h-full min-h-[450px] overflow-hidden select-none bg-[#010204]"
     />
   );
 }
