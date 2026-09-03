@@ -2,18 +2,9 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/cesium/:match*",
-      "destination": "/cesium/:match*"
-    },
-    {
-      "source": "/assets/:match*",
-      "destination": "/assets/:match*"
-    },
-    {
-      "source": "/((?!cesium|assets|favicon.ico|.*\\..*).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
