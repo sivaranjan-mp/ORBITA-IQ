@@ -94,3 +94,57 @@ export function orbitalRadiusKm(satellite: Satellite): number | null {
   if (satellite.altitudeKm == null) return null;
   return EARTH_RADIUS_KM + satellite.altitudeKm;
 }
+
+/** Standard gravitational parameter for Earth in km^3 / s^2 */
+const MU_EARTH = 398600.4418;
+
+/** Calculates the orbital velocity in km/s */
+export function calculateOrbitalVelocityKmS(satellite: Satellite): number {
+  if (satellite.velocityKmS != null && satellite.velocityKmS > 0) {
+    return satellite.velocityKmS;
+  }
+  const r = orbitalRadiusKm(satellite);
+  if (!r) return 7.6;
+  return Math.round(Math.sqrt(MU_EARTH / r) * 100) / 100;
+}
+
+/**
+ * Calculates satellite footprint radius on the Earth surface in meters.
+ * Coverage horizon angle: cos(theta) = R / (R + h).
+ */
+export function calculateFootprintRadiusMeters(satellite: Satellite): number {
+  const alt = satellite.altitudeKm ?? 500;
+  const ratio = EARTH_RADIUS_KM / (EARTH_RADIUS_KM + alt);
+  const theta = Math.acos(Math.min(1, Math.max(0, ratio)));
+  return EARTH_RADIUS_KM * theta * 1000;
+}
+
+/**
+ * Samples a continuous 3D orbital trajectory ring in Earth coordinates.
+ * Generates an array of [longitude, latitude, altitudeMeters] for Cesium polylines.
+ */
+export function sampleFullOrbit3D(
+  satellite: Satellite,
+  referenceDate: Date,
+  samples = 120
+): Array<{ longitudeDeg: number; latitudeDeg: number; heightMeters: number }> {
+  if (!hasOrbitalData(satellite)) {
+    return [];
+  }
+
+  const periodMinutes = satellite.periodMinutes!;
+  const periodMs = periodMinutes * 60_000;
+  const points: Array<{ longitudeDeg: number; latitudeDeg: number; heightMeters: number }> = [];
+
+  for (let i = 0; i <= samples; i++) {
+    const fraction = i / samples;
+    const t = new Date(referenceDate.getTime() + fraction * periodMs);
+    const pos = computeSubSatellitePoint(satellite, t);
+    if (pos) {
+      points.push(pos);
+    }
+  }
+
+  return points;
+}
+

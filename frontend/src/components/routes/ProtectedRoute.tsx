@@ -26,14 +26,5 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  return (
-    <>
-      {isBypass && (
-        <div className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white text-center font-bold p-2 text-sm shadow-md pointer-events-none">
-          LOGIN DISABLED - DEV MODE - NO REAL SESSION
-        </div>
-      )}
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }
