@@ -119,9 +119,15 @@ export function useCatalog({
       pollIntervalRef.current = setInterval(checkSyncStatus, 1500);
       // Run immediate status check
       checkSyncStatus();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to synchronize catalog:", err);
-      const msg = err.response?.data?.detail || "Synchronization trigger failed.";
+      let msg = "Synchronization trigger failed.";
+      if (err && typeof err === "object" && "response" in err) {
+        const response = (err as { response?: { data?: { detail?: string } } }).response;
+        if (response?.data?.detail) {
+          msg = response.data.detail;
+        }
+      }
       setSyncStatus({
         status: "failed",
         processed: 0,
