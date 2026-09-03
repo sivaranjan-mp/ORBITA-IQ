@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAlerts } from "@/hooks/useAlerts";
-import { formatDateTime, formatTcaHorizon } from "@/lib/format";
+import { formatCollisionDate, formatCollisionTime, formatTcaHorizon } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ConjunctionAlert, RiskLevel, ScreeningScope } from "@/types/alert";
 
@@ -140,7 +140,7 @@ export function AlertsTable() {
               <TableHead>Satellite A</TableHead>
               <TableHead>Satellite B</TableHead>
               <TableHead>Scope</TableHead>
-              <TableHead>TCA (UTC)</TableHead>
+              <TableHead>Date of Collision (UTC)</TableHead>
               <TableHead className="text-right">Miss Distance</TableHead>
               <TableHead className="text-right">Relative Velocity</TableHead>
               <TableHead>Risk</TableHead>
@@ -203,10 +203,17 @@ export function AlertsTable() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-foreground font-medium">{formatDateTime(alert.tca)}</span>
-                        <span className="rounded bg-secondary/80 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
-                          {horizonBadge}
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-foreground font-mono">
+                            {formatCollisionDate(alert.tca)}
+                          </span>
+                          <span className="rounded bg-secondary/80 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                            {horizonBadge}
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-mono text-muted-foreground">
+                          {formatCollisionTime(alert.tca)}
                         </span>
                       </div>
                     </TableCell>

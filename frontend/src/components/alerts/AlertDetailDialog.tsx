@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { formatDateTime, formatProbability, formatTcaHorizon } from "@/lib/format";
+import { formatCollisionDate, formatCollisionTime, formatDateTime, formatProbability, formatTcaHorizon } from "@/lib/format";
 import type { AlertStatus, ConjunctionAlert } from "@/types/alert";
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -82,7 +82,21 @@ export function AlertDetailDialog({
               </span>
             }
           />
-          <Row label="Time of Closest Approach (TCA)" value={formatDateTime(alert.tca)} />
+          <Row
+            label="Date of Collision"
+            value={<span className="font-mono font-semibold">{formatCollisionDate(alert.tca)}</span>}
+          />
+          <Row
+            label="Time of Collision (TCA)"
+            value={
+              <div className="flex items-center gap-2 font-mono">
+                <span>{formatCollisionTime(alert.tca)}</span>
+                <span className="rounded bg-secondary/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {horizon}
+                </span>
+              </div>
+            }
+          />
           <Row
             label="Miss Distance"
             value={

@@ -53,7 +53,7 @@ export function TimelineChart() {
       return (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-md shadow-md text-sm">
           <p className="font-bold mb-1">{data.primarySatelliteName} vs {data.secondarySatelliteName}</p>
-          <p><span className="text-slate-500">TCA:</span> {format(data.tcaTimestamp, "yyyy-MM-dd HH:mm:ss")}</p>
+          <p><span className="text-slate-500">Collision Date & Time:</span> {format(data.tcaTimestamp, "yyyy-MM-dd HH:mm:ss")} UTC</p>
           <p><span className="text-slate-500">Miss Dist:</span> {data.missDistanceKm.toFixed(2)} km</p>
           <p><span className="text-slate-500">Probability:</span> {data.probability.toExponential(2)}</p>
           <p><span className="text-slate-500">Risk:</span> <span style={{color: RISK_COLORS[data.riskLevel] || RISK_COLORS.low}} className="uppercase font-semibold">{data.riskLevel}</span></p>

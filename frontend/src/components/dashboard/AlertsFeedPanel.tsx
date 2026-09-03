@@ -5,7 +5,7 @@ import { RiskBadge } from "@/components/dashboard/RiskBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAlerts } from "@/hooks/useAlerts";
-import { formatCountdown, formatTcaHorizon } from "@/lib/format";
+import { formatCollisionDateTime, formatCountdown, formatTcaHorizon } from "@/lib/format";
 
 export function AlertsFeedPanel() {
   const { alerts, isLoading } = useAlerts();
@@ -57,7 +57,7 @@ export function AlertsFeedPanel() {
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Miss distance: {missKm < 1.0 ? `${alert.missDistanceM.toFixed(0)} m` : `${missKm.toFixed(2)} km`} · {formatTcaHorizon(alert.tca)}
+                    Miss distance: {missKm < 1.0 ? `${alert.missDistanceM.toFixed(0)} m` : `${missKm.toFixed(2)} km`} · Collision: {formatCollisionDateTime(alert.tca)} ({formatTcaHorizon(alert.tca)})
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">

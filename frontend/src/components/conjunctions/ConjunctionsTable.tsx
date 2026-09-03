@@ -35,7 +35,7 @@ export function ConjunctionsTable() {
               <tr>
                 <th className="px-6 py-4 font-medium">Primary Object</th>
                 <th className="px-6 py-4 font-medium">Secondary Object</th>
-                <th className="px-6 py-4 font-medium text-right">TCA (UTC)</th>
+                <th className="px-6 py-4 font-medium text-right">Date of Collision (UTC)</th>
                 <th className="px-6 py-4 font-medium text-right">Miss Distance</th>
                 <th className="px-6 py-4 font-medium text-right">Rel Velocity</th>
                 <th className="px-6 py-4 font-medium text-center">Probability (Pc)</th>
@@ -73,7 +73,12 @@ export function ConjunctionsTable() {
                       <div className="text-xs text-slate-500">NORAD: {event.secondaryNoradId}</div>
                     </td>
                     <td className="px-6 py-4 text-right font-mono whitespace-nowrap">
-                      {format(parseISO(event.tca), "yyyy-MM-dd HH:mm:ss")}
+                      <div className="font-semibold text-slate-900 dark:text-white">
+                        {format(parseISO(event.tca), "yyyy-MM-dd")}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {format(parseISO(event.tca), "HH:mm:ss 'UTC'")}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-right font-mono">
                       {event.missDistanceKm.toFixed(3)} km

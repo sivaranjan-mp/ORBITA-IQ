@@ -5,7 +5,7 @@ import { AltitudeTrendChart } from "@/components/dashboard/AltitudeTrendChart";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { SatelliteQuickList } from "@/components/dashboard/SatelliteQuickList";
 import { useDashboard } from "@/hooks/useDashboard";
-import { formatCountdown, formatDateTime } from "@/lib/format";
+import { formatCollisionDateTime, formatCountdown } from "@/lib/format";
 
 import { ConjunctionsTable } from "@/components/conjunctions/ConjunctionsTable";
 import { TimelineChart } from "@/components/conjunctions/TimelineChart";
@@ -58,7 +58,11 @@ export function DashboardPage() {
           value={upcoming ? formatCountdown(upcoming.tca) : "—"}
           icon={Radar}
           accent={upcoming?.riskLevel === "critical" ? "destructive" : "default"}
-          sublabel={upcoming ? `${upcoming.primarySatellite} · TCA ${formatDateTime(upcoming.tca)}` : "No upcoming events"}
+          sublabel={
+            upcoming
+              ? `${upcoming.primarySatellite} · Collision ${formatCollisionDateTime(upcoming.tca)}`
+              : "No upcoming events"
+          }
           isLoading={isLoading}
         />
       </div>
