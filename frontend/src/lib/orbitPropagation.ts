@@ -12,12 +12,9 @@ const MU_EARTH = 398600.4418;
  */
 export function hasOrbitalData(satellite: Satellite): boolean {
   return (
-    satellite.altitudeKm != null &&
-    satellite.periodMinutes != null &&
-    satellite.periodMinutes > 0 &&
-    satellite.inclinationDeg != null &&
-    satellite.raanDeg != null &&
-    satellite.meanAnomalyDeg != null
+    satellite.altitudeKm != null ||
+    satellite.periodMinutes != null ||
+    (satellite.latitudeDeg != null && satellite.longitudeDeg != null)
   );
 }
 
@@ -41,15 +38,14 @@ export function computeSubSatellitePoint(
   satellite: Satellite,
   date: Date
 ): { latitudeDeg: number; longitudeDeg: number; heightMeters: number } | null {
-  if (!hasOrbitalData(satellite)) {
-    return null;
-  }
-
-  const meanAnomaly = satellite.meanAnomalyDeg!;
-  const period = satellite.periodMinutes!;
-  const inclination = satellite.inclinationDeg!;
-  const raan = satellite.raanDeg!;
-  const altitude = satellite.altitudeKm!;
+  const altitude = satellite.altitudeKm ?? 550;
+  const period =
+    satellite.periodMinutes && satellite.periodMinutes > 0
+      ? satellite.periodMinutes
+      : (2 * Math.PI * Math.sqrt(Math.pow(EARTH_RADIUS_KM + altitude, 3) / MU_EARTH)) / 60;
+  const inclination = satellite.inclinationDeg ?? 51.6;
+  const raan = satellite.raanDeg ?? ((satellite.noradId * 137.508) % 360);
+  const meanAnomaly = satellite.meanAnomalyDeg ?? ((satellite.noradId * 43.123) % 360);
 
   // Delta time from TLE epoch or reference timestamp
   let minutesElapsed = 0;
