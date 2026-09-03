@@ -157,7 +157,7 @@ export function SatelliteTable({
           <span className="text-muted-foreground font-medium">Sort:</span>
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
+            onChange={(e) => setSortBy(e.target.value as "collision" | "name" | "norad" | "altitude")}
             className="rounded border border-border bg-card px-2 py-1 text-xs font-medium text-foreground outline-none cursor-pointer"
           >
             <option value="collision">Collision Risk (Earliest First)</option>
