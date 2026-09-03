@@ -27,10 +27,10 @@ export function useAlerts() {
     }
   }, []);
 
-  const triggerScreening = useCallback(async () => {
+  const triggerScreening = useCallback(async (lookaheadHours: number = 120.0) => {
     setIsScreening(true);
     try {
-      await apiClient.post("/alerts/screen");
+      await apiClient.post(`/alerts/screen?lookahead_hours=${lookaheadHours}`);
       await fetchAlerts(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to trigger screening");

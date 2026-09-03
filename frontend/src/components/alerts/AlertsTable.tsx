@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { RefreshCw, ShieldAlert } from "lucide-react";
+import { Clock, RefreshCw, ShieldAlert } from "lucide-react";
 
 import { AlertDetailDialog } from "@/components/alerts/AlertDetailDialog";
 import { RiskBadge } from "@/components/dashboard/RiskBadge";
@@ -32,10 +32,17 @@ const SCOPE_FILTERS: Array<{ label: string; value: ScreeningScope | "all" }> = [
   { label: "Fleet vs Catalog", value: "fleet_vs_catalog" },
 ];
 
+const LOOKAHEAD_OPTIONS = [
+  { label: "5 Days (120h)", hours: 120 },
+  { label: "7 Days (168h)", hours: 168 },
+  { label: "14 Days (336h)", hours: 336 },
+];
+
 export function AlertsTable() {
   const { alerts, isLoading, isScreening, triggerScreening, updateAlertStatus } = useAlerts();
   const [riskFilter, setRiskFilter] = useState<RiskLevel | "all">("all");
   const [scopeFilter, setScopeFilter] = useState<ScreeningScope | "all">("all");
+  const [selectedHorizon, setSelectedHorizon] = useState<number>(120);
   const [selected, setSelected] = useState<ConjunctionAlert | null>(null);
 
   const filtered = useMemo(() => {
@@ -94,17 +101,33 @@ export function AlertsTable() {
           </div>
         </div>
 
-        {/* Screening Trigger Button */}
+        {/* Screening Horizon Selector and Run Button */}
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs">
+            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+            <select
+              value={selectedHorizon}
+              onChange={(e) => setSelectedHorizon(Number(e.target.value))}
+              disabled={isScreening}
+              className="bg-transparent text-xs font-medium text-foreground outline-none cursor-pointer"
+            >
+              {LOOKAHEAD_OPTIONS.map((opt) => (
+                <option key={opt.hours} value={opt.hours} className="bg-popover text-popover-foreground">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <Button
             size="sm"
             variant="outline"
-            onClick={() => triggerScreening()}
+            onClick={() => triggerScreening(selectedHorizon)}
             disabled={isScreening}
             className="h-8 gap-1.5 text-xs font-medium"
           >
             <RefreshCw className={cn("h-3.5 w-3.5", isScreening && "animate-spin text-primary")} />
-            {isScreening ? "Screening 5-Day Window…" : "Run Screening"}
+            {isScreening ? `Screening ${selectedHorizon / 24}d Window…` : `Screen Now`}
           </Button>
         </div>
       </div>
@@ -140,7 +163,7 @@ export function AlertsTable() {
                     <ShieldAlert className="h-8 w-8 text-muted-foreground/60" />
                     <p className="text-sm font-medium text-foreground">No conjunctions detected</p>
                     <p className="text-xs text-muted-foreground">
-                      No close approaches matching the selected filter within the 5-day screening horizon.
+                      No close approaches matching the selected filter within the screening horizon.
                     </p>
                   </div>
                 </TableCell>
