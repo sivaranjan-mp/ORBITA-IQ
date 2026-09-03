@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from sqlalchemy import text
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
@@ -21,7 +22,7 @@ scheduler = AsyncIOScheduler()
 
 async def update_orbit_states():
     """
-    High-performance in-memory batch propagation job.
+    Background job triggered on scheduler interval.
     Propagates all active fleet satellites using SGP4 and updates database and WebSockets.
     """
     logger.info("Starting scheduled fleet orbit state propagation.")
@@ -29,11 +30,21 @@ async def update_orbit_states():
     async with async_session_maker() as db:
         try:
             # 1. Fetch active satellites with their stored TLE records
-            stmt = select(Satellite).where(Satellite.status == SatelliteStatus.ACTIVE).options(
-                selectinload(Satellite.tle_records)
-            )
-            result = await db.execute(stmt)
-            satellites = result.scalars().all()
+            try:
+                stmt = select(Satellite).where(Satellite.status == SatelliteStatus.ACTIVE).options(
+                    selectinload(Satellite.tle_records)
+                )
+                result = await db.execute(stmt)
+                satellites = result.scalars().all()
+            except Exception as query_err:
+                logger.warning(
+                    f"Direct ENUM query on Satellite.status failed ({query_err}), falling back to text cast query."
+                )
+                raw_stmt = select(Satellite).where(text("satellites.status::text = 'active'")).options(
+                    selectinload(Satellite.tle_records)
+                )
+                result = await db.execute(raw_stmt)
+                satellites = result.scalars().all()
 
             # Pre-load catalog satellites mapping as fallback
             cat_tle_map = {}
@@ -131,6 +142,9 @@ async def update_orbit_states():
             logger.exception(f"Critical error in scheduled orbit update: {e}")
             await db.rollback()
             raise
+
+
+propagate_fleet_job = update_orbit_states
 
 
 async def run_screening_job():

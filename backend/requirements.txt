@@ -17,3 +17,5 @@ greenlet==3.5.5
 apscheduler==3.11.0
 numpy==2.2.3
 scipy==1.15.2
+alembic==1.14.1
+

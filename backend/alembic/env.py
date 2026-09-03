@@ -21,13 +21,19 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 load_dotenv()
 
-database_url = os.getenv("DATABASE_URL")
+database_url = os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL")
 if database_url:
+    if database_url.startswith("postgresql+asyncpg://"):
+        database_url = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    elif database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
     config.set_main_option("sqlalchemy.url", database_url)
 
 from app.db.session import Base
 from app.models.satellites import Satellite, OrbitState, TLERecord, OMMRecord
 from app.models.conjunctions import ConjunctionEvent
+from app.models.catalog import CatalogSatellite
+from app.models.alerts import Alert, AlertHistory, ConjunctionAlert
 
 target_metadata = Base.metadata
 

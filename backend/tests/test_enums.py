@@ -27,3 +27,46 @@ def test_enum_declarations_and_comparisons():
     assert str(q6) is not None
     assert str(q7) is not None
     assert str(q8) is not None
+
+
+@pytest.mark.asyncio
+async def test_schema_check_non_postgres():
+    from unittest.mock import AsyncMock, MagicMock
+    from app.db.schema_check import verify_and_heal_schema
+
+    mock_engine = MagicMock()
+    mock_engine.dialect.name = "sqlite"
+
+    result = await verify_and_heal_schema(mock_engine)
+    assert result["valid"] is True
+    assert result["healed"] is False
+
+
+@pytest.mark.asyncio
+async def test_schema_check_postgres_simulation_healing():
+    from unittest.mock import AsyncMock, MagicMock
+    from app.db.schema_check import verify_and_heal_schema
+
+    mock_engine = MagicMock()
+    mock_engine.dialect.name = "postgresql"
+
+    mock_conn = AsyncMock()
+    mock_conn.commit = AsyncMock()
+    
+    # Return row with text type initially, then satellite_status after healing
+    mock_res_initial = MagicMock()
+    mock_res_initial.first.return_value = ("text", "text")
+    
+    mock_res_healed = MagicMock()
+    mock_res_healed.first.return_value = ("USER-DEFINED", "satellite_status")
+    
+    mock_conn.execute.side_effect = [mock_res_initial, None, mock_res_healed]
+
+    mock_engine.connect.return_value.__aenter__.return_value = mock_conn
+
+    result = await verify_and_heal_schema(mock_engine)
+    assert result["valid"] is True
+    assert result["healed"] is True
+    assert result["udt_name"] == "satellite_status"
+    assert mock_conn.commit.called
+

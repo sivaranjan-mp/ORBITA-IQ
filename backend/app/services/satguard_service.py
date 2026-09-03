@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from scipy.optimize import minimize_scalar
 from sgp4.api import Satrec
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,11 +23,11 @@ from app.core.constants import (
 from app.models.alerts import Alert, ConjunctionAlert
 from app.models.catalog import CatalogSatellite
 from app.models.conjunctions import ConjunctionEvent
-from app.models.enums import ConjunctionStatus, SatelliteStatus
+from app.models.enums import AlertState, ConjunctionStatus, RiskLevel, SatelliteStatus
 from app.models.satellites import Satellite
-from app.services.alert_service import AlertService
 from app.services.conjunction_engine import ConjunctionEngine
 from app.services.probability_engine import ProbabilityEngine
+from app.services.risk_explanation_engine import RiskExplanationEngine
 
 logger = logging.getLogger(__name__)
 
@@ -35,55 +35,50 @@ logger = logging.getLogger(__name__)
 class SatguardService:
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.alert_service = AlertService(db)
 
     @staticmethod
-    def compute_apogee_perigee(tle_line1: str, tle_line2: str) -> Tuple[float, float]:
+    def compute_apogee_perigee(line1: str, line2: str) -> Tuple[float, float]:
         """
-        Calculates apogee and perigee in km above WGS84 Earth radius from TLE mean motion and eccentricity.
+        Computes perigee and apogee altitudes (km) above Earth's mean radius from TLE lines.
         """
-        try:
-            satrec = Satrec.twoline2rv(tle_line1, tle_line2)
-            n_rad_min = satrec.no_kozai
-            if n_rad_min <= 0:
-                return 0.0, 0.0
-            n_rad_s = n_rad_min / 60.0
-            a = (MU_EARTH_KM3_S2 / (n_rad_s ** 2)) ** (1.0 / 3.0)
-            e = satrec.ecco
-            apogee = a * (1.0 + e) - WGS84_EARTH_RADIUS_KM
-            perigee = a * (1.0 - e) - WGS84_EARTH_RADIUS_KM
-            return round(apogee, 2), round(perigee, 2)
-        except Exception:
-            return 0.0, 0.0
+        satrec = Satrec.twoline2rv(line1, line2)
+        n_rad_s = satrec.no_kozai / 60.0
+        a = (MU_EARTH_KM3_S2 / (n_rad_s ** 2)) ** (1.0 / 3.0)
+        e = satrec.ecco
+        r_perigee = a * (1.0 - e)
+        r_apogee = a * (1.0 + e)
+        perigee_alt = max(0.0, r_perigee - WGS84_EARTH_RADIUS_KM)
+        apogee_alt = max(0.0, r_apogee - WGS84_EARTH_RADIUS_KM)
+        return (apogee_alt, perigee_alt)
 
     @staticmethod
-    def _distance_at_time(satrec1: Satrec, satrec2: Satrec, dt: datetime):
+    def _distance_at_time(
+        sat1: Satrec,
+        sat2: Satrec,
+        dt: datetime,
+    ) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
         """
-        Calculates 3D Euclidean distance (km) and relative velocity (km/s) at datetime dt.
+        Calculates 3D Euclidean distance (km) and relative velocity (km/s) between two satellites at a specific datetime.
         """
-        now_jd = dt.toordinal() + 1721425.5
-        now_fr = (
-            dt.hour * 3600.0 + dt.minute * 60.0 + dt.second + dt.microsecond / 1e6
-        ) / 86400.0
+        jd = dt.toordinal() + 1721425.5
+        fr = (dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6) / 86400.0
 
-        e1, r1, v1 = satrec1.sgp4(now_jd, now_fr)
-        e2, r2, v2 = satrec2.sgp4(now_jd, now_fr)
+        e1, r1, v1 = sat1.sgp4(jd, fr)
+        e2, r2, v2 = sat2.sgp4(jd, fr)
 
         if e1 != 0 or e2 != 0:
-            return float('inf'), None, None, None, None, None
+            return (1e9, np.zeros(3), np.zeros(3), np.zeros(3), np.zeros(3), 0.0)
 
-        dx = r1[0] - r2[0]
-        dy = r1[1] - r2[1]
-        dz = r1[2] - r2[2]
+        r1_arr = np.array(r1, dtype=np.float64)
+        r2_arr = np.array(r2, dtype=np.float64)
+        v1_arr = np.array(v1, dtype=np.float64)
+        v2_arr = np.array(v2, dtype=np.float64)
 
-        dvx = v1[0] - v2[0]
-        dvy = v1[1] - v2[1]
-        dvz = v1[2] - v2[2]
+        diff = r1_arr - r2_arr
+        dist_km = float(np.linalg.norm(diff))
+        rel_vel = float(np.linalg.norm(v1_arr - v2_arr))
 
-        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
-        rel_vel = math.sqrt(dvx * dvx + dvy * dvy + dvz * dvz)
-
-        return dist, r1, v1, r2, v2, rel_vel
+        return (dist_km, r1_arr, v1_arr, r2_arr, v2_arr, rel_vel)
 
     async def screen_all(
         self,
@@ -96,7 +91,6 @@ class SatguardService:
         1. Fleet vs Fleet (My Satellites screened against each other)
         2. Fleet vs Catalog (My Satellites screened against Global Catalog)
 
-        Look-ahead window: 5 days (120 hours) from now.
         Stage 1: Coarse perigee/apogee filter (eliminates non-overlapping orbits).
         Stage 2: Vectorized 5-day SGP4 propagation scan on ALL Stage 1 survivors (no truncation)
                  + scipy scalar refinement near local minima.
@@ -105,13 +99,25 @@ class SatguardService:
         now = datetime.now(timezone.utc)
 
         # 1. Fetch active primary satellites (the fleet) with their latest TLEs
-        stmt = (
-            select(Satellite)
-            .where(Satellite.status == SatelliteStatus.ACTIVE)
-            .options(selectinload(Satellite.tle_records))
-        )
-        result = await self.db.execute(stmt)
-        satellites = result.scalars().all()
+        try:
+            stmt = (
+                select(Satellite)
+                .where(Satellite.status == SatelliteStatus.ACTIVE)
+                .options(selectinload(Satellite.tle_records))
+            )
+            result = await self.db.execute(stmt)
+            satellites = result.scalars().all()
+        except Exception as query_err:
+            logger.warning(
+                f"Direct ENUM query on Satellite.status failed ({query_err}), falling back to text cast query."
+            )
+            raw_stmt = (
+                select(Satellite)
+                .where(text("satellites.status::text = 'active'"))
+                .options(selectinload(Satellite.tle_records))
+            )
+            result = await self.db.execute(raw_stmt)
+            satellites = result.scalars().all()
 
         fleet_objects: List[Dict] = []
         for s in satellites:

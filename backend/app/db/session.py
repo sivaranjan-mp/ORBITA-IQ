@@ -2,9 +2,20 @@ import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
-# The SUPABASE_DB_URL should be in the format: postgresql+asyncpg://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres
-DATABASE_URL = os.environ.get(
-    "SUPABASE_DB_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres")
+def get_database_url() -> str:
+    url = os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL")
+    if not url:
+        return "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres"
+    
+    # Render / Supabase standard URL format normalization for asyncpg
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
+
+DATABASE_URL = get_database_url()
 
 engine = create_async_engine(
     DATABASE_URL,

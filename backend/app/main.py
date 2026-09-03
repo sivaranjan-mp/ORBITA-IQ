@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
     # Ensure all declared database models/tables exist in Postgres
     try:
         from app.db.session import engine, Base
+        from app.db.schema_check import verify_and_heal_schema
         import app.models.catalog  # noqa: F401
         import app.models.satellites  # noqa: F401
         import app.models.alerts  # noqa: F401
@@ -32,6 +33,10 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables initialized successfully via Base.metadata.create_all.")
+
+        # Verify column types and self-heal any enum drift (e.g. text -> satellite_status)
+        schema_status = await verify_and_heal_schema(engine)
+        logger.info(f"Startup schema check completed: {schema_status}")
     except Exception as e:
         logger.exception(f"FATAL: Database schema initialization failed on startup: {e}")
         raise
