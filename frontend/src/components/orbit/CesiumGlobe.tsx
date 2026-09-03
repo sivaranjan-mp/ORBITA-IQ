@@ -18,7 +18,6 @@ const STATUS_COLOR: Record<SatelliteStatus, Cesium.Color> = {
   decayed: Cesium.Color.fromCssColorString("#F2545B"),
 };
 
-
 export interface LiveTelemetry {
   satelliteId: string;
   latitudeDeg: number;
@@ -41,6 +40,7 @@ export interface CesiumGlobeProps {
   simSpeed?: number;
   followSatellite?: boolean;
   imageryStyle?: ImageryStyle;
+  authToken?: string | null;
   onTelemetryUpdate?: (telemetry: LiveTelemetry | null) => void;
   onWsStatusChange?: (connected: boolean) => void;
 }
@@ -50,6 +50,12 @@ interface WsOrbitUpdate {
   latitudeDeg: number;
   longitudeDeg: number;
   altitudeKm: number;
+}
+
+interface SatelliteEntityRecord {
+  marker: Cesium.Entity;
+  orbit?: Cesium.Entity;
+  status: SatelliteStatus;
 }
 
 export function CesiumGlobe({
@@ -64,11 +70,13 @@ export function CesiumGlobe({
   simSpeed = 1,
   followSatellite = false,
   imageryStyle = "satellite",
+  authToken,
   onTelemetryUpdate,
   onWsStatusChange,
 }: CesiumGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Cesium.Viewer | null>(null);
+
   const satellitesRef = useRef(satellites);
   satellitesRef.current = satellites;
 
@@ -84,6 +92,12 @@ export function CesiumGlobe({
   const focusedIdRef = useRef(focusedId);
   focusedIdRef.current = focusedId;
 
+  const showAllOrbitsRef = useRef(showAllOrbits);
+  showAllOrbitsRef.current = showAllOrbits;
+
+  // Persistent entity cache to avoid recreating entities on every 10s poll
+  const satEntitiesRef = useRef<Map<string, SatelliteEntityRecord>>(new Map());
+
   // Track virtual simulated time offset (milliseconds)
   const simTimeOffsetMsRef = useRef<number>(0);
   const lastRealTimeRef = useRef<number>(Date.now());
@@ -97,7 +111,7 @@ export function CesiumGlobe({
     return new Date(Date.now() + simTimeOffsetMsRef.current);
   }, []);
 
-  // 1. Graceful WebSocket connection to backend
+  // 1. Authenticated WebSocket connection to backend
   useEffect(() => {
     let ws: WebSocket | null = null;
     let reconnectTimeout: ReturnType<typeof setTimeout>;
@@ -110,7 +124,27 @@ export function CesiumGlobe({
           "http://localhost:8000/api/v1";
 
         const wsBase = apiBase.replace(/^http/, "ws").replace(/\/$/, "");
-        const wsUrl = `${wsBase}/orbit/ws`;
+        
+        // Pass auth token if available to avoid 1008 policy violation
+        const token =
+          authToken ||
+          (() => {
+            try {
+              const sessionRaw = localStorage.getItem("sb-bf2e83d0-auth-token") ||
+                localStorage.getItem("supabase.auth.token");
+              if (sessionRaw) {
+                const parsed = JSON.parse(sessionRaw);
+                return parsed?.currentSession?.access_token || parsed?.access_token || null;
+              }
+            } catch {
+              /* ignore */
+            }
+            return null;
+          })();
+
+        const wsUrl = token
+          ? `${wsBase}/orbit/ws?token=${encodeURIComponent(token)}`
+          : `${wsBase}/orbit/ws`;
 
         ws = new WebSocket(wsUrl);
 
@@ -130,6 +164,10 @@ export function CesiumGlobe({
                   alt: update.altitudeKm * 1000,
                 };
               });
+              // Prompt single render for live telemetry update
+              if (viewerRef.current) {
+                viewerRef.current.scene.requestRender();
+              }
             }
           } catch {
             // Silently ignore malformed messages
@@ -144,8 +182,8 @@ export function CesiumGlobe({
         ws.onclose = () => {
           setWsConnected(false);
           onWsStatusChange?.(false);
-          // Try reconnecting after 10 seconds
-          reconnectTimeout = setTimeout(connectWs, 10_000);
+          // Retry reconnecting after 15 seconds if unmounted or disconnected
+          reconnectTimeout = setTimeout(connectWs, 15_000);
         };
       } catch {
         setWsConnected(false);
@@ -163,13 +201,12 @@ export function CesiumGlobe({
         ws.close();
       }
     };
-  }, [onWsStatusChange]);
+  }, [authToken, onWsStatusChange]);
 
   // 2. Initialize Cesium Viewer with High-Resolution Space & Earth Engine
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Use real public Cesium Ion default token — allows terrain & built-in assets
     Cesium.Ion.defaultAccessToken =
       import.meta.env.VITE_CESIUM_ION_TOKEN ||
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NmViZGJjMS05N2Q3LTRlMTEtODNlMy05N2I2YWMyOGI1MDQiLCJpZCI6OTYxMzAsImlhdCI6MTY1NzY0MTU1N30.NImGHf1V8K8mT7MQXR6BN5sI5vmlCMTlHGnHdvFLVpM";
@@ -187,7 +224,6 @@ export function CesiumGlobe({
       selectionIndicator: false,
       shouldAnimate: true,
       orderIndependentTranslucency: true,
-      // Provide a guaranteed offline base layer so the globe always renders
       baseLayer: Cesium.ImageryLayer.fromProviderAsync(
         Cesium.TileMapServiceImageryProvider.fromUrl(
           Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII")
@@ -196,32 +232,32 @@ export function CesiumGlobe({
       ),
       contextOptions: {
         webgl: {
-          alpha: false, // Deep space opaque rendering for maximum contrast & crisp stars
+          alpha: false,
           preserveDrawingBuffer: true,
           powerPreference: "high-performance",
         },
       },
     });
 
-    // Clean aesthetic: Hide Cesium credit container overlay
     if (viewer.cesiumWidget.creditContainer) {
       (viewer.cesiumWidget.creditContainer as HTMLElement).style.display = "none";
     }
 
-    // High-Resolution & Sharpness Configuration
-    viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 2.0);
-    viewer.useBrowserRecommendedResolution = false;
-    viewer.scene.globe.maximumScreenSpaceError = 1.25; // Sharper tile LOD (higher texture detail)
-    viewer.scene.globe.tileCacheSize = 350;
+    // High performance configuration
+    viewer.resolutionScale = 1.0;
+    viewer.useBrowserRecommendedResolution = true;
+    viewer.scene.globe.maximumScreenSpaceError = 4;
+    viewer.scene.globe.tileCacheSize = 150;
+    viewer.scene.globe.preloadAncestors = false;
 
     const scene = viewer.scene;
+    scene.requestRenderMode = true;
+    scene.maximumRenderTimeChange = Infinity;
 
-    // Deep Space Cosmic Colors
     scene.globe.baseColor = Cesium.Color.fromCssColorString("#02050D");
     scene.backgroundColor = Cesium.Color.fromCssColorString("#010204");
     scene.globe.enableLighting = enableLighting;
 
-    // Authentic Tycho-2 Deep Space Starfield SkyBox
     try {
       scene.skyBox = new Cesium.SkyBox({
         sources: {
@@ -238,33 +274,27 @@ export function CesiumGlobe({
       if (scene.skyBox) scene.skyBox.show = true;
     }
 
-    // Photorealistic Atmospheric Scattering (Earth Glow)
     scene.globe.showGroundAtmosphere = true;
-    scene.globe.atmosphereLightIntensity = 15.0;
+    scene.globe.atmosphereLightIntensity = 10.0;
     scene.globe.atmosphereRayleighScaleHeight = 8500.0;
     scene.globe.atmosphereMieScaleHeight = 1200.0;
-    scene.globe.lightingFadeInDistance = 25000000.0;
-    scene.globe.lightingFadeOutDistance = 15000000.0;
-    scene.globe.nightFadeInDistance = 15000000.0;
-    scene.globe.nightFadeOutDistance = 60000000.0;
 
     if (scene.skyAtmosphere) {
       scene.skyAtmosphere.show = true;
-      scene.skyAtmosphere.atmosphereLightIntensity = 14.0;
-      scene.skyAtmosphere.saturationShift = 0.45;
-      scene.skyAtmosphere.brightnessShift = 0.20;
-      scene.skyAtmosphere.hueShift = -0.02; // Vivid orbital cyan-blue rim halo
+      scene.skyAtmosphere.atmosphereLightIntensity = 10.0;
+      scene.skyAtmosphere.saturationShift = 0.3;
+      scene.skyAtmosphere.brightnessShift = 0.15;
+      scene.skyAtmosphere.hueShift = -0.02;
     }
 
     if (scene.sun) scene.sun.show = true;
     if (scene.moon) scene.moon.show = true;
 
-    // High Dynamic Range & Space Bloom Post-Processing
     try {
       if ("highDynamicRange" in scene) {
         (scene as unknown as { highDynamicRange: boolean }).highDynamicRange = true;
       }
-    } catch { /* HDR not supported in this build */ }
+    } catch { /* ignore */ }
 
     try {
       if (scene.postProcessStages) {
@@ -280,13 +310,11 @@ export function CesiumGlobe({
           scene.postProcessStages.bloom.uniforms.sigma = 2.0;
         }
       }
-    } catch { /* Post-processing not available */ }
+    } catch { /* ignore */ }
 
-    // Zoom limits
     scene.screenSpaceCameraController.minimumZoomDistance = 80_000;
     scene.screenSpaceCameraController.maximumZoomDistance = 75_000_000;
 
-    // Initial camera position framed over Earth
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(20, 15, 23_500_000),
       orientation: {
@@ -296,7 +324,6 @@ export function CesiumGlobe({
       },
     });
 
-    // Selection listener
     const entityHandler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
     entityHandler.setInputAction((movement: { position: Cesium.Cartesian2 }) => {
       const pickedObject = scene.pick(movement.position);
@@ -308,7 +335,6 @@ export function CesiumGlobe({
           return;
         }
       }
-      // Clicked on empty space
       if (!pickedObject) {
         onSelect(null);
       }
@@ -320,17 +346,14 @@ export function CesiumGlobe({
       const deltaMs = now - lastRealTimeRef.current;
       lastRealTimeRef.current = now;
 
-      // Advance simulation time offset according to speed multiplier
       if (simSpeedRef.current > 1) {
         simTimeOffsetMsRef.current += deltaMs * (simSpeedRef.current - 1);
       }
 
-      // Continuous Earth Auto-Rotation when enabled and not following a satellite
       if (autoRotateRef.current && !followSatelliteRef.current) {
         scene.camera.rotate(Cesium.Cartesian3.UNIT_Z, 0.0012);
       }
 
-      // Chaser Camera: Smoothly follow the focused satellite in orbit
       if (followSatelliteRef.current && focusedIdRef.current) {
         const sat = satellitesRef.current.find((s) => s.id === focusedIdRef.current);
         if (sat) {
@@ -354,15 +377,27 @@ export function CesiumGlobe({
           }
         }
       }
+
+      // Regulated frame render: request frame only when scene state actually mutates
+      if (
+        autoRotateRef.current ||
+        simSpeedRef.current > 1 ||
+        followSatelliteRef.current ||
+        focusedIdRef.current
+      ) {
+        scene.requestRender();
+      }
     });
 
     viewerRef.current = viewer;
+    const satEntities = satEntitiesRef.current;
 
     return () => {
       removeTickListener();
       entityHandler.destroy();
       viewer.destroy();
       viewerRef.current = null;
+      satEntities.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -378,27 +413,23 @@ export function CesiumGlobe({
       let provider: Cesium.ImageryProvider;
       try {
         if (imageryStyle === "satellite") {
-          // ESRI World Imagery (High-Resolution Global Satellite Photography)
           provider = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
             "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
             { enablePickFeatures: false }
           );
         } else if (imageryStyle === "bluemarble") {
-          // NASA GIBS Blue Marble with Bathymetry & Shaded Relief
           provider = new Cesium.UrlTemplateImageryProvider({
             url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
             maximumLevel: 8,
             credit: "NASA GIBS Blue Marble",
           });
         } else if (imageryStyle === "night") {
-          // NASA Black Marble (Earth at Night / Golden City Lights)
           provider = new Cesium.UrlTemplateImageryProvider({
             url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_CityLights_2012/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg",
             maximumLevel: 8,
             credit: "NASA Black Marble Night Lights",
           });
         } else {
-          // Tactical Deep Space / CartoDB Dark Matter
           provider = new Cesium.UrlTemplateImageryProvider({
             url: "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
             subdomains: ["a", "b", "c", "d"],
@@ -407,7 +438,7 @@ export function CesiumGlobe({
           });
         }
       } catch (err) {
-        console.warn("Primary imagery provider failed, using NaturalEarthII fallback", err);
+        console.warn("Primary imagery provider fallback", err);
         provider = await Cesium.TileMapServiceImageryProvider.fromUrl(
           Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII")
         );
@@ -418,6 +449,7 @@ export function CesiumGlobe({
       const layers = viewer.imageryLayers;
       layers.removeAll();
       layers.addImageryProvider(provider);
+      viewer.scene.requestRender();
     };
 
     applyImagery();
@@ -430,73 +462,98 @@ export function CesiumGlobe({
   // 4. Update lighting dynamically
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (viewer && viewer.scene && viewer.scene.globe) {
+    if (viewer?.scene?.globe) {
       viewer.scene.globe.enableLighting = enableLighting;
+      viewer.scene.requestRender();
     }
   }, [enableLighting]);
 
   // 5. Update HDR space bloom dynamically
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (viewer && viewer.scene && viewer.scene.postProcessStages?.bloom) {
+    if (viewer?.scene?.postProcessStages?.bloom) {
       viewer.scene.postProcessStages.bloom.enabled = enableBloom;
+      viewer.scene.requestRender();
     }
   }, [enableBloom]);
 
-  // 4. Populate Satellite Entities and 3D Trajectories
+  // 6. Persistent In-Place Satellite Entity Synchronization
+  // Never wipe entities every 10s! Update existing markers in-place for 0-lag instant output.
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
 
-    // Clear previous satellite entities (preserve ground track if any)
-    const entitiesToRemove = viewer.entities.values.filter(
-      (e) => !e.id.startsWith("focused-track-")
-    );
-    entitiesToRemove.forEach((e) => viewer.entities.remove(e));
-
+    const entitiesMap = satEntitiesRef.current;
+    const currentSatIds = new Set(satellites.map((s) => s.id));
     const simDate = getSimulatedDate();
+    const THROTTLE_MS = 180;
+    const posCache: Record<string, { pos: Cesium.Cartesian3 | undefined; ts: number }> = {};
 
+    // A. Remove any decommissioned satellites no longer in fleet
+    for (const [id, record] of entitiesMap.entries()) {
+      if (!currentSatIds.has(id)) {
+        viewer.entities.remove(record.marker);
+        if (record.orbit) viewer.entities.remove(record.orbit);
+        entitiesMap.delete(id);
+      }
+    }
+
+    // B. Add new satellites or update existing ones in-place
     satellites.forEach((sat) => {
-      const isFocused = sat.id === focusedId;
+      const isFocused = sat.id === focusedIdRef.current;
       const statusColor = STATUS_COLOR[sat.status] || STATUS_COLOR.active;
+      const existing = entitiesMap.get(sat.id);
 
-      // Dynamic position property that updates in real time
+      if (existing) {
+        // Update existing marker attributes without destroying WebGL geometry
+        if (existing.status !== sat.status) {
+          existing.status = sat.status;
+          if (existing.marker.point) {
+            existing.marker.point.color = new Cesium.ConstantProperty(
+              isFocused ? Cesium.Color.WHITE : statusColor
+            );
+            existing.marker.point.outlineColor = new Cesium.ConstantProperty(
+              isFocused ? statusColor : Cesium.Color.fromCssColorString("#060B14")
+            );
+          }
+        }
+        return;
+      }
+
+      // Throttled position callback — pure calculation without internal render thrash
       const positionProperty = new Cesium.CallbackPositionProperty(() => {
-        // Priority 1: Backend WebSocket live push
+        const now = Date.now();
+        const cached = posCache[sat.id];
+        if (cached && now - cached.ts < THROTTLE_MS) return cached.pos;
+
         const live = livePositionsRef.current[sat.id];
+        let result: Cesium.Cartesian3 | undefined;
         if (live) {
-          return Cesium.Cartesian3.fromDegrees(live.lon, live.lat, live.alt);
+          result = Cesium.Cartesian3.fromDegrees(live.lon, live.lat, live.alt);
+        } else {
+          const simTime = new Date(now + simTimeOffsetMsRef.current);
+          const pt = computeSubSatellitePoint(sat, simTime);
+          if (pt) {
+            result = Cesium.Cartesian3.fromDegrees(pt.longitudeDeg, pt.latitudeDeg, pt.heightMeters);
+          } else if (sat.longitudeDeg != null && sat.latitudeDeg != null && sat.altitudeKm != null) {
+            result = Cesium.Cartesian3.fromDegrees(sat.longitudeDeg, sat.latitudeDeg, sat.altitudeKm * 1000);
+          }
         }
 
-        // Priority 2: High-precision real-time orbit propagation
-        const simTime = new Date(Date.now() + simTimeOffsetMsRef.current);
-        const pt = computeSubSatellitePoint(sat, simTime);
-        if (pt) {
-          return Cesium.Cartesian3.fromDegrees(pt.longitudeDeg, pt.latitudeDeg, pt.heightMeters);
-        }
-
-        // Priority 3: Static fallback from initial payload
-        if (sat.longitudeDeg != null && sat.latitudeDeg != null && sat.altitudeKm != null) {
-          return Cesium.Cartesian3.fromDegrees(
-            sat.longitudeDeg,
-            sat.latitudeDeg,
-            sat.altitudeKm * 1000
-          );
-        }
-
-        return undefined;
+        posCache[sat.id] = { pos: result, ts: now };
+        return result;
       }, false);
 
-      // Add Satellite Marker Entity
-      viewer.entities.add({
+      // Satellite marker entity
+      const marker = viewer.entities.add({
         id: sat.id,
         name: sat.name,
         position: positionProperty,
         point: {
-          pixelSize: isFocused ? 14 : 9,
+          pixelSize: isFocused ? 13 : 7,
           color: isFocused ? Cesium.Color.WHITE : statusColor,
           outlineColor: isFocused ? statusColor : Cesium.Color.fromCssColorString("#060B14"),
-          outlineWidth: isFocused ? 3.5 : 2,
+          outlineWidth: isFocused ? 3 : 1.5,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
@@ -514,74 +571,127 @@ export function CesiumGlobe({
         },
       });
 
-      // Animated Pulsing Beacon for Focused Satellite
-      if (isFocused) {
-        viewer.entities.add({
-          id: `${sat.id}-pulse`,
-          name: `${sat.name} Beacon`,
-          position: positionProperty,
-          point: {
-            pixelSize: new Cesium.CallbackProperty(() => {
-              const t = (Date.now() % 1500) / 1500;
-              return 16 + t * 24;
-            }, false) as unknown as number,
-            color: new Cesium.CallbackProperty(() => {
-              const t = (Date.now() % 1500) / 1500;
-              return statusColor.withAlpha(0.7 * (1 - t));
-            }, false) as unknown as Cesium.Color,
-            outlineColor: statusColor.withAlpha(0.3),
-            outlineWidth: 1,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      // 3D Full Orbit Trajectory ribbon (precomputed and memoized)
+      let orbit: Cesium.Entity | undefined;
+      const orbitPoints = sampleFullOrbit3D(sat, simDate, 72);
+      if (orbitPoints.length > 2) {
+        const positions = orbitPoints.map((p) =>
+          Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters)
+        );
+        orbit = viewer.entities.add({
+          id: `${sat.id}-orbit-path`,
+          polyline: {
+            positions,
+            width: isFocused ? 2.5 : 1.0,
+            material: new Cesium.ColorMaterialProperty(statusColor.withAlpha(0.28)),
+            clampToGround: false,
+            show: showAllOrbitsRef.current || isFocused,
           },
         });
       }
 
-      // Draw 3D Orbit Trajectory Line (Glowing neon ribbon)
-      if (showAllOrbits || isFocused) {
-        const orbitPoints = sampleFullOrbit3D(sat, simDate, 100);
-        if (orbitPoints.length > 2) {
-          const positions = orbitPoints.map((p) =>
-            Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters)
-          );
-
-          viewer.entities.add({
-            id: `${sat.id}-orbit-path`,
-            polyline: {
-              positions,
-              width: isFocused ? 2.8 : 1.2,
-              material: new Cesium.PolylineGlowMaterialProperty({
-                glowPower: isFocused ? 0.4 : 0.15,
-                color: statusColor.withAlpha(isFocused ? 0.95 : 0.35),
-              }),
-              clampToGround: false,
-            },
-          });
-        }
-      }
+      entitiesMap.set(sat.id, { marker, orbit, status: sat.status });
     });
-  }, [satellites, focusedId, showAllOrbits, getSimulatedDate]);
 
-  // 5. Draw Ground Track, Nadir Beam, and Coverage Footprint for Focused Satellite
+    viewer.scene.requestRender();
+  }, [satellites, getSimulatedDate]);
+
+  // 7. Instant Orbit Paths Visibility Toggle (0ms delay, no re-creations)
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
 
-    // Remove any previous focused ground track entities
-    const trackEntities = viewer.entities.values.filter((e) =>
-      e.id.startsWith("focused-track-")
+    for (const [id, record] of satEntitiesRef.current.entries()) {
+      if (record.orbit && record.orbit.polyline) {
+        record.orbit.polyline.show = new Cesium.ConstantProperty(
+          showAllOrbits || id === focusedId
+        );
+      }
+    }
+    viewer.scene.requestRender();
+  }, [showAllOrbits, focusedId]);
+
+  // 8. Instant Focus Selection Styling & Ground Track / Footprint
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+
+    // A. Update marker styles for all existing entities in-place
+    for (const [id, record] of satEntitiesRef.current.entries()) {
+      const isFocused = id === focusedId;
+      const statusColor = STATUS_COLOR[record.status] || STATUS_COLOR.active;
+
+      if (record.marker.point) {
+        record.marker.point.pixelSize = new Cesium.ConstantProperty(isFocused ? 13 : 7);
+        record.marker.point.color = new Cesium.ConstantProperty(
+          isFocused ? Cesium.Color.WHITE : statusColor
+        );
+        record.marker.point.outlineColor = new Cesium.ConstantProperty(
+          isFocused ? statusColor : Cesium.Color.fromCssColorString("#060B14")
+        );
+        record.marker.point.outlineWidth = new Cesium.ConstantProperty(isFocused ? 3 : 1.5);
+      }
+
+      if (record.marker.label) {
+        record.marker.label.show = new Cesium.ConstantProperty(
+          isFocused || satellitesRef.current.length <= 15
+        );
+      }
+
+      if (record.orbit && record.orbit.polyline) {
+        record.orbit.polyline.show = new Cesium.ConstantProperty(
+          showAllOrbitsRef.current || isFocused
+        );
+        record.orbit.polyline.width = new Cesium.ConstantProperty(isFocused ? 2.5 : 1.0);
+        record.orbit.polyline.material = isFocused
+          ? new Cesium.PolylineGlowMaterialProperty({
+              glowPower: 0.35,
+              color: statusColor.withAlpha(0.95),
+            })
+          : new Cesium.ColorMaterialProperty(statusColor.withAlpha(0.28));
+      }
+    }
+
+    // B. Clean up previous focus-specific entities (pulse, ground track, footprint, nadir beam)
+    const focusSpecific = viewer.entities.values.filter((e) =>
+      e.id.startsWith("focused-track-") || e.id.endsWith("-pulse")
     );
-    trackEntities.forEach((e) => viewer.entities.remove(e));
+    focusSpecific.forEach((e) => viewer.entities.remove(e));
 
     const focused = satellitesRef.current.find((s) => s.id === focusedId);
     if (!focused) {
       onTelemetryUpdate?.(null);
+      viewer.scene.requestRender();
       return;
     }
 
     const simDate = getSimulatedDate();
     const statusColor = STATUS_COLOR[focused.status] || STATUS_COLOR.active;
+    const focusEntity = satEntitiesRef.current.get(focused.id)?.marker;
 
-    // 1. Predicted Ground Track on Earth surface
+    // Pulsing beacon for focused satellite
+    if (focusEntity) {
+      viewer.entities.add({
+        id: `${focused.id}-pulse`,
+        name: `${focused.name} Beacon`,
+        position: focusEntity.position,
+        point: {
+          pixelSize: new Cesium.CallbackProperty(() => {
+            const t = (Date.now() % 1600) / 1600;
+            return 14 + t * 18;
+          }, false) as unknown as number,
+          color: new Cesium.CallbackProperty(() => {
+            const t = (Date.now() % 1600) / 1600;
+            return statusColor.withAlpha(0.6 * (1 - t));
+          }, false) as unknown as Cesium.Color,
+          outlineColor: statusColor.withAlpha(0.25),
+          outlineWidth: 1,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+    }
+
+    // Predicted Ground Track line
     const groundTrack = sampleGroundTrack(focused, simDate, 80);
     if (groundTrack.length > 1) {
       const positions = groundTrack.flatMap((p) => [p.longitudeDeg, p.latitudeDeg]);
@@ -600,7 +710,7 @@ export function CesiumGlobe({
       });
     }
 
-    // 2. Sensor Coverage Footprint (Nadir projected ellipse on ground)
+    // Sensor Coverage Footprint
     if (showFootprint) {
       const footprintMeters = calculateFootprintRadiusMeters(focused);
       viewer.entities.add({
@@ -624,7 +734,7 @@ export function CesiumGlobe({
         },
       });
 
-      // Nadir Beam: Line connecting satellite to sub-satellite ground point
+      // Nadir Beam
       viewer.entities.add({
         id: "focused-track-nadir-beam",
         polyline: {
@@ -647,23 +757,22 @@ export function CesiumGlobe({
       });
     }
 
-    // Smooth Fly-to camera animation if not in follow mode
-    if (!followSatelliteRef.current) {
-      const entity = viewer.entities.getById(focused.id);
-      if (entity) {
-        viewer.flyTo(entity, {
-          duration: 1.6,
-          offset: new Cesium.HeadingPitchRange(
-            Cesium.Math.toRadians(0),
-            Cesium.Math.toRadians(-40),
-            Math.max(1_600_000, (focused.altitudeKm ?? 500) * 3500)
-          ),
-        }).catch(() => undefined);
-      }
+    // Smooth Fly-to camera
+    if (!followSatelliteRef.current && focusEntity) {
+      viewer.flyTo(focusEntity, {
+        duration: 1.2,
+        offset: new Cesium.HeadingPitchRange(
+          Cesium.Math.toRadians(0),
+          Cesium.Math.toRadians(-40),
+          Math.max(1_600_000, (focused.altitudeKm ?? 500) * 3500)
+        ),
+      }).catch(() => undefined);
     }
+
+    viewer.scene.requestRender();
   }, [focusedId, showFootprint, getSimulatedDate, onTelemetryUpdate]);
 
-  // 6. Live Telemetry stream emitter to parent
+  // 9. High-Precision Live Telemetry Stream Emitter
   useEffect(() => {
     if (!focusedId || !onTelemetryUpdate) return;
 
@@ -680,17 +789,21 @@ export function CesiumGlobe({
 
       const lat = live?.lat ?? propagated?.latitudeDeg ?? focused.latitudeDeg ?? 0;
       const lon = live?.lon ?? propagated?.longitudeDeg ?? focused.longitudeDeg ?? 0;
-      const altKm = live ? live.alt / 1000 : (propagated ? propagated.heightMeters / 1000 : focused.altitudeKm ?? 0);
+      const altKm = live
+        ? live.alt / 1000
+        : propagated
+        ? propagated.heightMeters / 1000
+        : focused.altitudeKm ?? 0;
       const vel = calculateOrbitalVelocityKmS(focused);
 
       onTelemetryUpdate({
         satelliteId: focused.id,
-        latitudeDeg: Math.round(lat * 100) / 100,
-        longitudeDeg: Math.round(lon * 100) / 100,
+        latitudeDeg: Math.round(lat * 1000) / 1000,
+        longitudeDeg: Math.round(lon * 1000) / 1000,
         altitudeKm: Math.round(altKm * 10) / 10,
         velocityKmS: vel,
       });
-    }, 250);
+    }, 200);
 
     return () => clearInterval(interval);
   }, [focusedId, onTelemetryUpdate]);

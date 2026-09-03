@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import List, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,19 +29,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/satellites", tags=["satellites"])
 
 
+_PROFILES_CACHE: dict[str, str] = {}
+_PROFILES_CACHE_TIMESTAMP: float = 0.0
+_PROFILES_CACHE_TTL: float = 60.0  # seconds
+
+
 def _get_owner_profiles_map() -> dict[str, str]:
+    global _PROFILES_CACHE, _PROFILES_CACHE_TIMESTAMP
+    now = time.time()
+    if _PROFILES_CACHE and (now - _PROFILES_CACHE_TIMESTAMP) < _PROFILES_CACHE_TTL:
+        return _PROFILES_CACHE
+
     try:
         admin = get_admin_client()
         result = admin.table("profiles").select("employee_id, full_name").execute()
         if result and result.data:
-            return {
+            _PROFILES_CACHE = {
                 p["employee_id"].strip().upper(): p["full_name"].strip()
                 for p in result.data
                 if p.get("employee_id") and p.get("full_name")
             }
+            _PROFILES_CACHE_TIMESTAMP = now
+            return _PROFILES_CACHE
     except Exception as exc:
         logger.warning(f"Could not load owner profiles from Supabase: {exc}")
-    return {}
+    return _PROFILES_CACHE or {}
 
 
 def _format_satellite_response(sat: Satellite, owner_name: Optional[str] = None) -> dict:
