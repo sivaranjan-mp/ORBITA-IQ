@@ -67,7 +67,7 @@ def _format_satellite_response(sat: Satellite, owner_name: Optional[str] = None)
         "meanAnomalyDeg": None,
     }
 
-    if sat.orbit_state:
+    if sat.orbit_state and sat.orbit_state.latitude_deg is not None and sat.orbit_state.latitude_deg != 0.0:
         resp.update({
             "altitudeKm": sat.orbit_state.altitude_km,
             "latitudeDeg": sat.orbit_state.latitude_deg,
@@ -80,6 +80,44 @@ def _format_satellite_response(sat: Satellite, owner_name: Optional[str] = None)
             "raanDeg": sat.orbit_state.raan_deg,
             "meanAnomalyDeg": sat.orbit_state.mean_anomaly_deg,
         })
+    else:
+        # Fallback to dynamic live SGP4 propagation from stored TLE
+        line1, line2 = None, None
+        if hasattr(sat, 'tle_records') and sat.tle_records:
+            latest_tle = max(sat.tle_records, key=lambda t: t.epoch)
+            line1, line2 = latest_tle.line1, latest_tle.line2
+
+        if line1 and line2:
+            from datetime import datetime, timezone
+            from app.services.sgp4_service import propagate_tle
+            now_utc = datetime.now(timezone.utc)
+            state = propagate_tle(line1, line2, now_utc)
+            if state:
+                resp.update({
+                    "altitudeKm": state["altitude_km"],
+                    "latitudeDeg": state["latitude_deg"],
+                    "longitudeDeg": state["longitude_deg"],
+                    "velocityKmS": state["velocity_km_s"],
+                    "inclinationDeg": state["inclination_deg"],
+                    "periodMinutes": state["period_minutes"],
+                    "eccentricity": state["eccentricity"],
+                    "lastTleEpoch": state["epoch"],
+                    "raanDeg": state["raan_deg"],
+                    "meanAnomalyDeg": state["mean_anomaly_deg"],
+                })
+        elif sat.orbit_state:
+            resp.update({
+                "altitudeKm": sat.orbit_state.altitude_km,
+                "latitudeDeg": sat.orbit_state.latitude_deg,
+                "longitudeDeg": sat.orbit_state.longitude_deg,
+                "velocityKmS": sat.orbit_state.velocity_km_s,
+                "inclinationDeg": sat.orbit_state.inclination_deg,
+                "periodMinutes": sat.orbit_state.period_minutes,
+                "eccentricity": sat.orbit_state.eccentricity,
+                "lastTleEpoch": sat.orbit_state.epoch,
+                "raanDeg": sat.orbit_state.raan_deg,
+                "meanAnomalyDeg": sat.orbit_state.mean_anomaly_deg,
+            })
     return resp
 
 

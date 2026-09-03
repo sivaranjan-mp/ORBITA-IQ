@@ -1,5 +1,6 @@
-from pydantic import BaseModel
 from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel
 
 
 class AlertStatusUpdate(BaseModel):
@@ -14,8 +15,20 @@ class ConjunctionAlertResponse(BaseModel):
     secondaryNoradId: int
     tca: datetime
     missDistanceM: float
-    probability: float
+    missDistanceKm: Optional[float] = None
+    relativeVelocityKmS: Optional[float] = None
+    probability: float = 0.0
     riskLevel: str
     status: str
-    detectedBy: str
+    screeningScope: Optional[str] = "fleet_vs_catalog"
+    detectedBy: str = "satguard"
     createdAt: datetime
+    computedAt: Optional[datetime] = None
+
+
+class ScreeningRunResponse(BaseModel):
+    message: str
+    eventsCreated: int
+    totalDetected: int
+    stage1Survivors: int
+    durationSeconds: float

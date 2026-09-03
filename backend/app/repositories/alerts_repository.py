@@ -1,14 +1,30 @@
+from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
 
-from app.models.alerts import Alert, AlertHistory
+from app.models.alerts import Alert, AlertHistory, ConjunctionAlert
 
 
 class AlertsRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def get_all_conjunction_alerts(self) -> List[ConjunctionAlert]:
+        stmt = select(ConjunctionAlert).options(
+            selectinload(ConjunctionAlert.satellite_a),
+            selectinload(ConjunctionAlert.satellite_b),
+        ).order_by(ConjunctionAlert.tca.asc())
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def get_conjunction_alert_by_id(self, alert_id: str) -> Optional[ConjunctionAlert]:
+        stmt = select(ConjunctionAlert).where(ConjunctionAlert.id == alert_id).options(
+            selectinload(ConjunctionAlert.satellite_a),
+            selectinload(ConjunctionAlert.satellite_b),
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_all_alerts(self) -> List[Alert]:
         stmt = select(Alert).options(

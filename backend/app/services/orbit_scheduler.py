@@ -1,16 +1,18 @@
-import logging
 import asyncio
+import logging
 from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.endpoints.orbit_ws import orbit_manager
+from app.core.constants import DEFAULT_LOOKAHEAD_HOURS, COARSE_STEP_SECONDS, MAX_SCREEN_MISS_DISTANCE_KM
 from app.db.session import async_session_maker
-from app.models.satellites import Satellite, OrbitState
+from app.models.catalog import CatalogSatellite
 from app.models.enums import SatelliteStatus
+from app.models.satellites import OrbitState, Satellite
 from app.services.celestrak_service import fetch_tle_by_norad_id
 from app.services.sgp4_service import propagate_tle
-from app.api.v1.endpoints.orbit_ws import orbit_manager
 
 logger = logging.getLogger(__name__)
 
@@ -19,58 +21,66 @@ scheduler = AsyncIOScheduler()
 
 async def update_orbit_states():
     """
-    Background job to fetch TLEs, propagate orbits, update database,
-    and broadcast to WebSockets.
+    High-performance in-memory batch propagation job.
+    Propagates all active fleet satellites using SGP4 and updates database and WebSockets.
     """
-    logger.info("Starting scheduled orbit state update.")
+    logger.info("Starting scheduled fleet orbit state propagation.")
 
     async with async_session_maker() as db:
         try:
-            # Fetch all active tracked satellites with their stored TLE records
+            # 1. Fetch active satellites with their stored TLE records
             stmt = select(Satellite).where(Satellite.status == SatelliteStatus.ACTIVE).options(
                 selectinload(Satellite.tle_records)
             )
             result = await db.execute(stmt)
             satellites = result.scalars().all()
 
+            # Pre-load catalog satellites mapping as fallback
+            cat_tle_map = {}
+            try:
+                cat_stmt = select(CatalogSatellite.norad_id, CatalogSatellite.line1, CatalogSatellite.line2)
+                cat_res = await db.execute(cat_stmt)
+                cat_tle_map = {row[0]: (row[1], row[2]) for row in cat_res.all()}
+            except Exception:
+                pass
+
             now = datetime.now(timezone.utc)
-            # 1. Fetch or fallback TLE and propagate all orbits sequentially
             computed_states = {}
+
             for sat in satellites:
                 try:
                     line1, line2 = None, None
 
-                    # Attempt fresh fetch from CelesTrak if possible
-                    try:
-                        await asyncio.sleep(0.5)
-                        tle_text = await fetch_tle_by_norad_id(sat.norad_id)
-                        lines = [l.strip() for l in tle_text.strip().split("\n") if l.strip()]
-                        if len(lines) >= 3:
-                            line1, line2 = lines[1], lines[2]
-                        elif len(lines) == 2:
-                            line1, line2 = lines[0], lines[1]
-                    except Exception as exc:
-                        logger.debug(f"CelesTrak fetch unavailable for NORAD {sat.norad_id}, falling back to stored TLE: {exc}")
+                    # Primary: latest stored TLE in tle_records
+                    if sat.tle_records:
+                        latest_tle = max(sat.tle_records, key=lambda t: t.epoch)
+                        line1, line2 = latest_tle.line1, latest_tle.line2
 
-                    # If CelesTrak fetch was unavailable, fall back to the latest stored TLE in DB
+                    # Fallback 1: catalog_satellites
+                    if (not line1 or not line2) and sat.norad_id in cat_tle_map:
+                        line1, line2 = cat_tle_map[sat.norad_id]
+
+                    # Fallback 2: fetch_tle_by_norad_id
                     if not line1 or not line2:
-                        if sat.tle_records:
-                            latest_tle = max(sat.tle_records, key=lambda t: t.epoch)
-                            line1, line2 = latest_tle.line1, latest_tle.line2
+                        try:
+                            tle_text = await fetch_tle_by_norad_id(sat.norad_id)
+                            lines = [l.strip() for l in tle_text.strip().split("\n") if l.strip()]
+                            if len(lines) >= 3:
+                                line1, line2 = lines[1], lines[2]
+                            elif len(lines) == 2:
+                                line1, line2 = lines[0], lines[1]
+                        except Exception as exc:
+                            logger.debug(f"TLE fetch unavailable for NORAD {sat.norad_id}: {exc}")
 
                     if not line1 or not line2:
-                        logger.warning(f"No TLE available to propagate for satellite {sat.norad_id}")
                         continue
 
                     state = propagate_tle(line1, line2, now)
-                    if not state:
-                        logger.warning(f"Failed to propagate TLE for satellite {sat.norad_id}")
-                        continue
-
-                    computed_states[sat.id] = state
+                    if state:
+                        computed_states[sat.id] = state
 
                 except Exception as e:
-                    logger.error(f"Error processing satellite {sat.norad_id}: {e}")
+                    logger.debug(f"Error propagating satellite {sat.norad_id}: {e}")
                     continue
 
             # 2. Bulk Database Update
@@ -94,7 +104,6 @@ async def update_orbit_states():
                             for key, value in state.items():
                                 setattr(sat.orbit_state, key, value)
 
-                        # Prepare update for websocket
                         updates_to_broadcast.append({
                             "satelliteId": str(sat.id),
                             "noradId": sat.norad_id,
@@ -109,16 +118,14 @@ async def update_orbit_states():
 
                     await db.commit()
                 except Exception as e:
-                    logger.exception(f"Error during bulk DB update in update_orbit_states: {e}")
+                    logger.exception(f"Error during DB update in update_orbit_states: {e}")
                     await db.rollback()
                     raise
 
-            # Broadcast updates if there are any connections
             if updates_to_broadcast:
                 await orbit_manager.broadcast_orbit_updates(updates_to_broadcast)
 
-            logger.info(
-                f"Finished orbit state update for {len(updates_to_broadcast)} satellites.")
+            logger.info(f"Finished orbit state update for {len(updates_to_broadcast)} satellites.")
 
         except Exception as e:
             logger.exception(f"Critical error in scheduled orbit update: {e}")
@@ -127,14 +134,23 @@ async def update_orbit_states():
 
 
 async def run_screening_job():
-    logger.info("Starting scheduled conjunction screening.")
+    """
+    Scheduled 5-day (120-hour) conjunction assessment run.
+    """
+    logger.info("Starting scheduled 5-day conjunction screening job.")
     from app.services.satguard_service import SatguardService
     async with async_session_maker() as db:
         try:
             service = SatguardService(db)
-            events_created = await service.screen_all(lookahead_hours=72, step_size_s=60, miss_dist_threshold_km=5.0)
+            metrics = await service.screen_all(
+                lookahead_hours=DEFAULT_LOOKAHEAD_HOURS,
+                step_size_s=COARSE_STEP_SECONDS,
+                miss_dist_threshold_km=MAX_SCREEN_MISS_DISTANCE_KM
+            )
             logger.info(
-                f"Finished conjunction screening. {events_created} events created.")
+                f"Finished conjunction screening in {metrics.get('duration_seconds')}s. "
+                f"Events created: {metrics.get('events_created')}, Stage 1 survivors: {metrics.get('stage1_survivors')}"
+            )
         except Exception as e:
             logger.exception(f"Critical error in scheduled screening: {e}")
             await db.rollback()
@@ -151,13 +167,18 @@ async def run_catalog_sync_job():
 
 
 def init_scheduler():
-    scheduler.add_job(update_orbit_states, 'interval', minutes=5,
-                      id='update_orbit_states_job', replace_existing=True)
-    scheduler.add_job(run_screening_job, 'interval', minutes=30,
-                      id='run_screening_job', replace_existing=True)
-    # Automatically refresh global catalog twice daily (every 12 hours)
-    scheduler.add_job(run_catalog_sync_job, 'interval', hours=12,
-                      id='catalog_sync_job', replace_existing=True)
+    scheduler.add_job(
+        update_orbit_states, 'interval', minutes=5,
+        id='update_orbit_states_job', replace_existing=True
+    )
+    scheduler.add_job(
+        run_screening_job, 'interval', minutes=20,
+        id='run_screening_job', replace_existing=True
+    )
+    scheduler.add_job(
+        run_catalog_sync_job, 'interval', hours=12,
+        id='catalog_sync_job', replace_existing=True
+    )
     scheduler.start()
 
 

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import math
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
@@ -24,7 +25,11 @@ logger = logging.getLogger(__name__)
 
 MU = 398600.4418  # km^3/s^2
 R_EARTH = 6378.137  # km
-CELESTRAK_ACTIVE_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
+CELESTRAK_ACTIVE_URLS = [
+    "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle",
+    "https://celestrak.com/NORAD/elements/gp.php?GROUP=active&FORMAT=tle",
+]
+ACTIVE_TLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "active_satellites.tle")
 
 # Fallback starter satellites if CelesTrak is unavailable on initial cold start
 STARTER_CATALOG_TLES = [
@@ -220,6 +225,42 @@ class CatalogService:
 
         logger.info("Catalog is empty. Seeding initial baseline space catalog...")
         added = 0
+
+        # Try seeding from bundled active TLE file first
+        if os.path.exists(ACTIVE_TLE_PATH):
+            try:
+                with open(ACTIVE_TLE_PATH, "r", encoding="utf-8") as f:
+                    lines = [l.strip() for l in f.readlines() if l.strip()]
+
+                idx = 0
+                while idx < len(lines):
+                    if idx + 2 < len(lines) and lines[idx + 1].startswith("1 ") and lines[idx + 2].startswith("2 "):
+                        name = lines[idx]
+                        l1 = lines[idx + 1]
+                        l2 = lines[idx + 2]
+                        idx += 3
+                    elif idx + 1 < len(lines) and lines[idx].startswith("1 ") and lines[idx + 1].startswith("2 "):
+                        name = f"OBJECT {lines[idx][2:7]}"
+                        l1 = lines[idx]
+                        l2 = lines[idx + 1]
+                        idx += 2
+                    else:
+                        idx += 1
+                        continue
+
+                    parsed = self.parse_tle_elements(name, l1, l2)
+                    if parsed:
+                        cat_sat = CatalogSatellite(**parsed)
+                        await self.session.merge(cat_sat)
+                        added += 1
+
+                await self.session.commit()
+                logger.info(f"Seeded {added} active satellites into catalog_satellites from bundled dataset.")
+                return added
+            except Exception as exc:
+                logger.warning(f"Failed to seed from bundled active dataset: {exc}. Falling back to starter TLEs.")
+
+        # Fallback to starter TLEs
         for name, l1, l2 in STARTER_CATALOG_TLES:
             parsed = self.parse_tle_elements(name, l1, l2)
             if parsed:
@@ -234,7 +275,7 @@ class CatalogService:
     @classmethod
     async def run_sync_background_job(cls):
         """
-        Background task executing CelesTrak active catalog download and batch insertion.
+        Background task executing CelesTrak active catalog download with multi-tier fallback.
         """
         async with sync_tracker._lock:
             if sync_tracker.status == "running":
@@ -252,19 +293,42 @@ class CatalogService:
 
         logger.info("Executing background CelesTrak active catalog sync...")
         try:
-            async with httpx.AsyncClient(headers=CELESTRAK_HEADERS, timeout=45.0) as client:
-                response = await client.get(CELESTRAK_ACTIVE_URL)
-                response.raise_for_status()
-                tle_text = response.text
+            tle_text = None
+            source_description = "CelesTrak (Live)"
+            client_timeout = httpx.Timeout(connect=10.0, read=45.0, write=10.0, pool=10.0)
+
+            # 1. Attempt live download from CelesTrak URLs
+            for url in CELESTRAK_ACTIVE_URLS:
+                try:
+                    logger.info(f"Attempting CelesTrak catalog download from {url}...")
+                    async with httpx.AsyncClient(headers=CELESTRAK_HEADERS, timeout=client_timeout) as client:
+                        response = await client.get(url)
+                        if response.status_code == 200 and len(response.text.strip()) > 500:
+                            tle_text = response.text
+                            source_description = "CelesTrak (Live)"
+                            logger.info(f"Successfully downloaded active catalog from {url}.")
+                            break
+                except Exception as net_err:
+                    logger.warning(f"Could not reach {url}: {net_err}")
+
+            # 2. If live fetch failed (e.g. Render cloud IP block or timeout), fallback to bundled active catalog
+            if not tle_text:
+                if os.path.exists(ACTIVE_TLE_PATH):
+                    logger.info(f"Live CelesTrak endpoints unreachable from cloud host. Loading bundled active catalog from {ACTIVE_TLE_PATH}...")
+                    with open(ACTIVE_TLE_PATH, "r", encoding="utf-8") as f:
+                        tle_text = f.read()
+                    source_description = "Active Space Catalog (Bundled Fallback)"
+                else:
+                    raise RuntimeError("Live CelesTrak endpoints unreachable and local bundled catalog not found.")
 
             lines = [l.strip() for l in tle_text.split("\n") if l.strip()]
             if len(lines) < 3:
-                raise ValueError("No satellite data returned from CelesTrak.")
+                raise ValueError("No satellite data returned from CelesTrak catalog source.")
 
             # Estimate total satellites (roughly lines / 3)
             estimated_total = max(1, len(lines) // 3)
             sync_tracker.total = estimated_total
-            sync_tracker.message = f"Parsing and inserting {estimated_total} active satellites..."
+            sync_tracker.message = f"Parsing and indexing {estimated_total} active satellites..."
 
             synced_count = 0
             now = datetime.now(timezone.utc)
@@ -331,14 +395,15 @@ class CatalogService:
             sync_tracker.status = "completed"
             sync_tracker.completed_at = datetime.now(timezone.utc)
             sync_tracker.last_sync_completed_at = sync_tracker.completed_at
-            sync_tracker.message = f"Successfully synchronized {synced_count:,} space objects from CelesTrak."
-            logger.info(f"CelesTrak sync background job complete. {synced_count} satellites stored.")
+            sync_tracker.message = f"Successfully synchronized {synced_count:,} space objects from {source_description}."
+            logger.info(f"CelesTrak sync background job complete. {synced_count} satellites stored ({source_description}).")
 
         except Exception as exc:
-            logger.exception(f"Error during CelesTrak catalog sync background job: {exc}")
+            err_msg = f"Synchronization failed: {str(exc) or repr(exc)}"
+            logger.exception(f"Error during CelesTrak catalog sync background job: {err_msg}")
             sync_tracker.status = "failed"
-            sync_tracker.error = str(exc)
-            sync_tracker.message = f"Synchronization failed: {str(exc)}"
+            sync_tracker.error = err_msg
+            sync_tracker.message = err_msg
 
     async def sync_celestrak_active_catalog(self) -> Tuple[int, str]:
         """

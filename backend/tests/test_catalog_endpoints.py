@@ -153,3 +153,21 @@ def test_sync_catalog_status_and_trigger():
 def test_sync_catalog_forbidden_for_unauthorized():
     response = client.post("/api/v1/catalog/sync")
     assert response.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_sync_catalog_background_job_fallback():
+    from app.services.catalog_service import CatalogService
+
+    mock_db = AsyncMock()
+    mock_db.merge = AsyncMock()
+    mock_db.commit = AsyncMock()
+
+    sync_tracker.status = "idle"
+    with patch("app.services.catalog_service.async_session_maker") as mock_session_maker:
+        mock_session_maker.return_value.__aenter__.return_value = mock_db
+        with patch("httpx.AsyncClient.get", side_effect=Exception("ConnectTimeout")):
+            await CatalogService.run_sync_background_job()
+            assert sync_tracker.status == "completed"
+            assert sync_tracker.synced_count > 0
+            assert "space objects" in sync_tracker.message

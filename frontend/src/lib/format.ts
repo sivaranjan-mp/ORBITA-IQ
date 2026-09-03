@@ -14,6 +14,21 @@ export function formatCountdown(targetIso: string): string {
   return isPast ? `T+${label}` : `T-${label}`;
 }
 
+export function formatTcaHorizon(targetIso: string): string {
+  const diffMs = new Date(targetIso).getTime() - Date.now();
+  if (diffMs < 0) return "Passed";
+  const hours = diffMs / 3_600_000;
+  if (hours >= 24) {
+    const days = (hours / 24).toFixed(1);
+    return `${days}d out`;
+  } else if (hours >= 1) {
+    return `${hours.toFixed(1)}h out`;
+  } else {
+    const mins = Math.max(1, Math.round(diffMs / 60_000));
+    return `${mins}m out`;
+  }
+}
+
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     month: "short",

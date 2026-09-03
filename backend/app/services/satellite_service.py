@@ -6,6 +6,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from app.models.satellites import Satellite, OrbitState, TLERecord, OMMRecord
+from app.models.catalog import CatalogSatellite
 from app.services import celestrak_service
 from app.services.tle_parser import parse_tle
 from app.services.omm_parser import parse_omm_json
