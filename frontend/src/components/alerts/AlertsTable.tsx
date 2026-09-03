@@ -33,16 +33,16 @@ const SCOPE_FILTERS: Array<{ label: string; value: ScreeningScope | "all" }> = [
 ];
 
 const LOOKAHEAD_OPTIONS = [
-  { label: "5 Days (120h)", hours: 120 },
-  { label: "7 Days (168h)", hours: 168 },
   { label: "14 Days (336h)", hours: 336 },
+  { label: "7 Days (168h)", hours: 168 },
+  { label: "5 Days (120h)", hours: 120 },
 ];
 
 export function AlertsTable() {
   const { alerts, isLoading, isScreening, triggerScreening, updateAlertStatus } = useAlerts();
   const [riskFilter, setRiskFilter] = useState<RiskLevel | "all">("all");
   const [scopeFilter, setScopeFilter] = useState<ScreeningScope | "all">("all");
-  const [selectedHorizon, setSelectedHorizon] = useState<number>(120);
+  const [selectedHorizon, setSelectedHorizon] = useState<number>(336);
   const [selected, setSelected] = useState<ConjunctionAlert | null>(null);
 
   const filtered = useMemo(() => {

@@ -18,7 +18,7 @@ export function AlertsFeedPanel() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
-          Active Conjunction Feed (5-Day Horizon)
+          Active Conjunction Feed (7–14 Day Horizon)
         </CardTitle>
         <Link
           to="/alerts"

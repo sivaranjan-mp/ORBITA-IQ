@@ -254,3 +254,21 @@ async def seed_mock_alerts(
     service = AlertService(db)
     alerts = await service.get_all_alerts()
     return [_format_alert(a) for a in alerts]
+
+
+@router.post("/seed-simulated", response_model=List[ConjunctionAlertResponse])
+async def seed_simulated_fleet_alerts(
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Seeds simulated collision alerts for 15-23 satellites with collision dates
+    between 7 and 14 days, and risk levels medium and low.
+    """
+    await db.execute(delete(ConjunctionAlert))
+    await db.commit()
+
+    service = AlertService(db)
+    created = await service.seed_simulated_alerts()
+    return [_format_alert(a) for a in created]
+
