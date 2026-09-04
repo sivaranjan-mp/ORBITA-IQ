@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from app.db.session import DATABASE_URL as DEFAULT_DB_URL, Base
 from app.services.satguard_service import SatguardService
-from app.db.schema_check import verify_and_heal_schema
+from app.db.schema_check import verify_schema
 
 
 async def run_live_verification(target_url: str):
@@ -37,10 +37,10 @@ async def run_live_verification(target_url: str):
     engine = create_async_engine(target_url, echo=False)
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    # 1. Startup Schema Check and Self-Healing
-    print("\n--- 1. Schema Validation & Enum Inspection ---")
+    # 1. Startup Schema Check (Read-Only)
+    print("\n--- 1. Schema Validation & Enum Inspection (Read-Only) ---")
     try:
-        check_result = await verify_and_heal_schema(engine)
+        check_result = await verify_schema(engine)
         print(f"Schema Check Status: {check_result}")
     except Exception as e:
         print(f"Schema check error: {e}")

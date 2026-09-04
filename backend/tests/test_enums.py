@@ -32,20 +32,20 @@ def test_enum_declarations_and_comparisons():
 @pytest.mark.asyncio
 async def test_schema_check_non_postgres():
     from unittest.mock import AsyncMock, MagicMock
-    from app.db.schema_check import verify_and_heal_schema
+    from app.db.schema_check import verify_schema
 
     mock_engine = MagicMock()
     mock_engine.dialect.name = "sqlite"
 
-    result = await verify_and_heal_schema(mock_engine)
+    result = await verify_schema(mock_engine)
     assert result["valid"] is True
-    assert result["healed"] is False
+    assert len(result["mismatches"]) == 0
 
 
 @pytest.mark.asyncio
-async def test_schema_check_postgres_simulation_healing():
+async def test_schema_check_postgres_readonly_verification():
     from unittest.mock import AsyncMock, MagicMock
-    from app.db.schema_check import verify_and_heal_schema
+    from app.db.schema_check import verify_schema
 
     mock_engine = MagicMock()
     mock_engine.dialect.name = "postgresql"
@@ -53,20 +53,56 @@ async def test_schema_check_postgres_simulation_healing():
     mock_conn = AsyncMock()
     mock_conn.commit = AsyncMock()
     
-    # Return row with text type initially, then satellite_status after healing
-    mock_res_initial = MagicMock()
-    mock_res_initial.first.return_value = ("text", "text")
-    
-    mock_res_healed = MagicMock()
-    mock_res_healed.first.return_value = ("USER-DEFINED", "satellite_status")
-    
-    mock_conn.execute.side_effect = [mock_res_initial, None, mock_res_healed]
-
+    # Return matched enum types
+    mock_res = MagicMock()
+    mock_res.fetchall.return_value = [
+        ("satellites", "status", "USER-DEFINED", "satellite_status"),
+        ("satellites", "object_type", "USER-DEFINED", "object_type"),
+        ("conjunction_events", "risk_level", "USER-DEFINED", "risk_level"),
+        ("conjunction_events", "status", "USER-DEFINED", "alert_status"),
+    ]
+    mock_conn.execute.return_value = mock_res
     mock_engine.connect.return_value.__aenter__.return_value = mock_conn
 
-    result = await verify_and_heal_schema(mock_engine)
+    result = await verify_schema(mock_engine)
     assert result["valid"] is True
-    assert result["healed"] is True
-    assert result["udt_name"] == "satellite_status"
-    assert mock_conn.commit.called
+    assert len(result["mismatches"]) == 0
+    assert len(result["columns_checked"]) == 4
+    # Ensure NO commits or DDL executions occurred
+    assert not mock_conn.commit.called
+
+
+@pytest.mark.asyncio
+async def test_schema_check_postgres_detects_mismatch_without_ddl():
+    from unittest.mock import AsyncMock, MagicMock
+    from app.db.schema_check import verify_schema
+
+    mock_engine = MagicMock()
+    mock_engine.dialect.name = "postgresql"
+
+    mock_conn = AsyncMock()
+    mock_conn.commit = AsyncMock()
+    
+    # Return mismatch: satellites.status is text instead of satellite_status
+    mock_res = MagicMock()
+    mock_res.fetchall.return_value = [
+        ("satellites", "status", "text", "text"),
+        ("satellites", "object_type", "USER-DEFINED", "object_type"),
+        ("conjunction_events", "risk_level", "USER-DEFINED", "risk_level"),
+        ("conjunction_events", "status", "USER-DEFINED", "alert_status"),
+    ]
+    mock_conn.execute.return_value = mock_res
+    mock_engine.connect.return_value.__aenter__.return_value = mock_conn
+
+    result = await verify_schema(mock_engine)
+    assert result["valid"] is False
+    assert len(result["mismatches"]) == 1
+    assert result["mismatches"][0]["column"] == "status"
+    assert result["mismatches"][0]["expected_udt"] == "satellite_status"
+    assert result["mismatches"][0]["actual_udt"] == "text"
+    
+    # Ensure NO DDL and NO commit were executed — strictly read-only
+    assert not mock_conn.commit.called
+    assert mock_conn.execute.call_count == 1  # Only the single read SELECT was run
+
 
