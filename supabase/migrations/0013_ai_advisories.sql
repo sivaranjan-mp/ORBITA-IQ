@@ -12,7 +12,7 @@ create table if not exists public.ai_maneuver_advisories (
     alert_id            uuid not null references public.conjunction_alerts(id) on delete cascade,
     satellite_norad_id  integer not null,
     recommendation_data jsonb not null,
-    model_used          text not null default 'claude-3-5-haiku-20241022',
+    model_used          text not null default 'gemini-2.5-flash',
     prompt_tokens       integer,
     completion_tokens   integer,
     created_at          timestamptz not null default now(),
