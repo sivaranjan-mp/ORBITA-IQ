@@ -10,6 +10,7 @@ from app.db.session import Base
 from app.models.enums import AlertState, ConjunctionStatus, RiskLevel
 
 if TYPE_CHECKING:
+    from app.models.ai_advisory import AIManeuverAdvisory
     from app.models.conjunctions import ConjunctionEvent
     from app.models.satellites import Satellite
 
@@ -78,6 +79,9 @@ class ConjunctionAlert(Base):
     )
     satellite_b: Mapped[Optional["Satellite"]] = relationship(
         foreign_keys=[satellite_b_id], lazy="selectin"
+    )
+    ai_advisory: Mapped[Optional["AIManeuverAdvisory"]] = relationship(
+        "AIManeuverAdvisory", back_populates="alert", uselist=False, cascade="all, delete-orphan", lazy="selectin"
     )
 
 

@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
         import app.models.satellites  # noqa: F401
         import app.models.alerts  # noqa: F401
         import app.models.conjunctions  # noqa: F401
+        import app.models.ai_advisory  # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables initialized successfully via Base.metadata.create_all.")

@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { AlertTriangle, Globe2, LayoutDashboard, Satellite, Settings } from "lucide-react";
+import { AlertTriangle, Globe2, LayoutDashboard, Satellite, Settings, Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/satellites", label: "My Satellites", icon: Satellite },
   { to: "/all-satellites", label: "All Satellites", icon: Globe2 },
+  { to: "/ai-assistant", label: "AI Assistant", icon: Sparkles },
   { to: "/alerts", label: "Alerts", icon: AlertTriangle },
   { to: "/orbit-viewer", label: "Orbit Viewer", icon: Globe2 },
   { to: "/settings", label: "Settings", icon: Settings },

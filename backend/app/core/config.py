@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     rate_limit_login: str = "10/minute"
     rate_limit_password_reset: str = "5/minute"
 
+    # ---- AI Assistant / LLM ----
+    gemini_api_key: Union[str, None] = None
+    google_api_key: Union[str, None] = None
+    anthropic_api_key: Union[str, None] = None
+    ai_model_name: str = "gemini-2.5-flash"
+
 
 @lru_cache
 def get_settings() -> Settings:

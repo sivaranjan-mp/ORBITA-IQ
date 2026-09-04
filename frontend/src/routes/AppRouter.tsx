@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { MissionControlLayout } from "@/components/layout/MissionControlLayout";
 import { ProtectedRoute } from "@/components/routes/ProtectedRoute";
+import { AiAssistantPage } from "@/pages/AiAssistantPage";
 import { AlertsPage } from "@/pages/AlertsPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
@@ -33,6 +34,7 @@ export function AppRouter() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/satellites" element={<MySatellitesPage />} />
         <Route path="/all-satellites" element={<AllSatellitesPage />} />
+        <Route path="/ai-assistant" element={<AiAssistantPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/orbit-viewer" element={<OrbitViewerPage />} />
         <Route path="/settings" element={<SettingsPage />} />
