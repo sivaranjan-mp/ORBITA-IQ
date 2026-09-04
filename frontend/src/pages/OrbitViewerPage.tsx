@@ -24,6 +24,8 @@ import {
   Search,
   HelpCircle,
   Sliders,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 
 import {
@@ -78,6 +80,7 @@ export function OrbitViewerPage() {
   const [cameraAltitudeKm, setCameraAltitudeKm] = useState<number>(23500);
   const [showMouseHelp, setShowMouseHelp] = useState(false);
   const zoomIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const moveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Continuous hold-to-zoom handlers
   const startContinuousZoom = (direction: "in" | "out") => {
@@ -104,7 +107,32 @@ export function OrbitViewerPage() {
     }
   };
 
-  // Global Keyboard Shortcuts for Zoom (+ / - / 0)
+  // Continuous hold-to-move handlers (Up / Down)
+  const startContinuousMove = (direction: "up" | "down") => {
+    if (direction === "up") {
+      globeRef.current?.moveUp(4);
+    } else {
+      globeRef.current?.moveDown(4);
+    }
+
+    if (moveIntervalRef.current) clearInterval(moveIntervalRef.current);
+    moveIntervalRef.current = setInterval(() => {
+      if (direction === "up") {
+        globeRef.current?.moveUp(3);
+      } else {
+        globeRef.current?.moveDown(3);
+      }
+    }, 60);
+  };
+
+  const stopContinuousMove = () => {
+    if (moveIntervalRef.current) {
+      clearInterval(moveIntervalRef.current);
+      moveIntervalRef.current = null;
+    }
+  };
+
+  // Global Keyboard Shortcuts for Zoom & Movement (+ / - / ArrowUp / ArrowDown / C / 0)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -121,6 +149,15 @@ export function OrbitViewerPage() {
       } else if (e.key === "-" || e.key === "_") {
         e.preventDefault();
         globeRef.current?.zoomOut(0.35);
+      } else if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") {
+        e.preventDefault();
+        globeRef.current?.moveUp(5);
+      } else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") {
+        e.preventDefault();
+        globeRef.current?.moveDown(5);
+      } else if (e.key === "c" || e.key === "C") {
+        e.preventDefault();
+        globeRef.current?.centerEarth();
       } else if (e.key === "0" || e.key === "f" || e.key === "F") {
         e.preventDefault();
         handleSelectSatellite(null);
@@ -132,8 +169,9 @@ export function OrbitViewerPage() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       if (zoomIntervalRef.current) clearInterval(zoomIntervalRef.current);
+      if (moveIntervalRef.current) clearInterval(moveIntervalRef.current);
     };
-  }, []);
+  }, [handleSelectSatellite]);
 
   // Orbit Shell metadata based on live camera altitude
   const shellInfo = useMemo(() => {
@@ -543,8 +581,50 @@ export function OrbitViewerPage() {
             </div>
           )}
 
-          {/* Floating Right Navigation & Zoom Dock */}
+          {/* Floating Right Navigation & Movement Dock */}
           <div className="absolute right-3 top-16 z-20 flex flex-col items-center gap-1.5 rounded-xl border border-border/80 bg-[#060B14]/90 p-1.5 shadow-2xl backdrop-blur-md pointer-events-auto">
+            {/* Move Up Button (Click or Hold) */}
+            <button
+              onMouseDown={() => startContinuousMove("up")}
+              onMouseUp={stopContinuousMove}
+              onMouseLeave={stopContinuousMove}
+              onTouchStart={() => startContinuousMove("up")}
+              onTouchEnd={stopContinuousMove}
+              onClick={() => globeRef.current?.moveUp(6)}
+              title="Move View Up (Click or Hold / Shortcut: ArrowUp or W)"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary/60 text-foreground hover:bg-cyan-500/25 hover:text-cyan-300 transition-all active:scale-95 border border-border/40"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+
+            {/* Center Earth Button */}
+            <button
+              onClick={() => {
+                handleSelectSatellite(null);
+                globeRef.current?.centerEarth();
+              }}
+              title="Center Earth in View (Shortcut: C)"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/30 hover:text-cyan-200 transition-all active:scale-95 border border-cyan-500/35 shadow-[0_0_10px_rgba(6,182,212,0.25)]"
+            >
+              <Crosshair className="h-4 w-4" />
+            </button>
+
+            {/* Move Down Button (Click or Hold) */}
+            <button
+              onMouseDown={() => startContinuousMove("down")}
+              onMouseUp={stopContinuousMove}
+              onMouseLeave={stopContinuousMove}
+              onTouchStart={() => startContinuousMove("down")}
+              onTouchEnd={stopContinuousMove}
+              onClick={() => globeRef.current?.moveDown(6)}
+              title="Move View Down (Click or Hold / Shortcut: ArrowDown or S)"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary/60 text-foreground hover:bg-cyan-500/25 hover:text-cyan-300 transition-all active:scale-95 border border-border/40"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+
+            <div className="h-[1px] w-6 bg-border/60 my-0.5" />
+
             {/* Zoom In (+) with continuous hold */}
             <button
               onMouseDown={() => startContinuousZoom("in")}
@@ -569,7 +649,7 @@ export function OrbitViewerPage() {
                 onChange={handleSliderChange}
                 aria-label="Orbit Altitude Zoom Slider"
                 title={`Altitude: ${cameraAltitudeKm.toLocaleString()} km (${shellInfo.shell})`}
-                className="h-24 w-1.5 accent-cyan-400 bg-secondary/80 rounded-lg cursor-pointer [appearance:slider-vertical]"
+                className="h-20 w-1.5 accent-cyan-400 bg-secondary/80 rounded-lg cursor-pointer [appearance:slider-vertical]"
               />
             </div>
 
@@ -627,10 +707,10 @@ export function OrbitViewerPage() {
               {mouseMode === "zoom" ? <Search className="h-3.5 w-3.5" /> : <Move className="h-3.5 w-3.5" />}
             </button>
 
-            {/* Mouse Movement Zoom Help Guide Button */}
+            {/* Controls Guide Button */}
             <button
               onClick={() => setShowMouseHelp(!showMouseHelp)}
-              title="Mouse Movement Zoom Guide"
+              title="Navigation & Controls Guide"
               className={cn(
                 "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
                 showMouseHelp
@@ -642,13 +722,13 @@ export function OrbitViewerPage() {
             </button>
           </div>
 
-          {/* Mouse Movement Zoom Help Guide Modal / Flyout */}
+          {/* Navigation & Controls Help Guide Modal / Flyout */}
           {showMouseHelp && (
-            <div className="absolute right-14 top-16 z-30 w-72 rounded-xl border border-cyan-500/40 bg-[#060B14]/95 p-3.5 shadow-2xl backdrop-blur-md text-foreground animate-in fade-in slide-in-from-right-2 duration-150">
+            <div className="absolute right-14 top-16 z-30 w-76 rounded-xl border border-cyan-500/40 bg-[#060B14]/95 p-3.5 shadow-2xl backdrop-blur-md text-foreground animate-in fade-in slide-in-from-right-2 duration-150">
               <div className="flex items-center justify-between border-b border-border/60 pb-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                  <Search className="h-3.5 w-3.5 text-cyan-400" />
-                  <span>Mouse Movement Zoom Guide</span>
+                  <Compass className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>Orbit Navigation & Controls</span>
                 </div>
                 <button
                   onClick={() => setShowMouseHelp(false)}
@@ -661,31 +741,37 @@ export function OrbitViewerPage() {
                 <div className="flex items-start gap-2">
                   <span className="font-mono text-cyan-400 font-bold shrink-0">1.</span>
                   <div>
-                    <strong className="text-white">Mouse Scroll Wheel:</strong> Scroll forward to zoom in, backward to zoom out directly towards the cursor.
+                    <strong className="text-white">Move Up & Down:</strong> Click or hold the <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">▲</kbd> / <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">▼</kbd> buttons, or press <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">↑</kbd> / <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">↓</kbd> or <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">W</kbd> / <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">S</kbd> to move the view up and down over Earth.
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="font-mono text-cyan-400 font-bold shrink-0">2.</span>
                   <div>
-                    <strong className="text-white">Right-Click Drag:</strong> Hold right mouse button and move mouse up to zoom in, down to zoom out.
+                    <strong className="text-white">Center Earth:</strong> Click the target crosshair button or press <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">C</kbd> to lock Earth back to the exact center of the screen.
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="font-mono text-cyan-400 font-bold shrink-0">3.</span>
                   <div>
-                    <strong className="text-white">Middle Drag / Shift+Drag:</strong> Hold Middle Mouse Button or Shift + Left Drag to zoom up/down.
+                    <strong className="text-white">Mouse Scroll Wheel:</strong> Scroll forward to zoom in, backward to zoom out directly towards the cursor.
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="font-mono text-cyan-400 font-bold shrink-0">4.</span>
                   <div>
-                    <strong className="text-white">Drag Zoom Mode:</strong> Enable the Drag Zoom tool to zoom in/out with standard left-click drag.
+                    <strong className="text-white">Right-Click Drag:</strong> Hold right mouse button and move mouse up to zoom in, down to zoom out.
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="font-mono text-cyan-400 font-bold shrink-0">5.</span>
+                  <div>
+                    <strong className="text-white">Drag Zoom Mode:</strong> Switch to Drag Zoom tool to zoom in/out with standard left-click drag anywhere.
                   </div>
                 </div>
                 <div className="flex items-start gap-2 border-t border-border/40 pt-1.5">
-                  <span className="font-mono text-cyan-400 font-bold shrink-0">5.</span>
+                  <span className="font-mono text-cyan-400 font-bold shrink-0">6.</span>
                   <div>
-                    <strong className="text-white">Keyboard:</strong> Press <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">+</kbd> to zoom in, <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">-</kbd> to zoom out, <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">0</kbd> to reset.
+                    <strong className="text-white">Keyboard Shortcuts:</strong> <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">+</kbd> Zoom in, <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">-</kbd> Zoom out, <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">0</kbd> Reset view.
                   </div>
                 </div>
               </div>

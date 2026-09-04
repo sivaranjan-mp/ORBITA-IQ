@@ -107,12 +107,17 @@ export interface LiveTelemetry {
   velocityKmS: number;
 }
 
-export type ImageryStyle = "satellite" | "bluemarble" | "night" | "dark";
+export type ImageryStyle = "satellite" | "bluemarble" | "night";
 
 export interface CesiumGlobeHandle {
   zoomIn: (factor?: number) => void;
   zoomOut: (factor?: number) => void;
   resetCamera: () => void;
+  centerEarth: () => void;
+  moveUp: (stepDeg?: number) => void;
+  moveDown: (stepDeg?: number) => void;
+  tiltUp: (stepDeg?: number) => void;
+  tiltDown: (stepDeg?: number) => void;
   viewFullEarth: () => void;
   viewLeo: () => void;
   viewMeo: () => void;
@@ -163,18 +168,10 @@ function getImageryProvider(style: ImageryStyle): Cesium.ImageryProvider {
       credit: "NASA GIBS Blue Marble",
     });
   }
-  if (style === "night") {
-    return new Cesium.UrlTemplateImageryProvider({
-      url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_CityLights_2012/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg",
-      maximumLevel: 8,
-      credit: "NASA Night Lights",
-    });
-  }
   return new Cesium.UrlTemplateImageryProvider({
-    url: "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-    subdomains: ["a", "b", "c", "d"],
-    maximumLevel: 19,
-    credit: "CartoDB Dark Matter",
+    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_CityLights_2012/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg",
+    maximumLevel: 8,
+    credit: "NASA Night Lights",
   });
 }
 
@@ -227,6 +224,54 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
       const zoomStep = Math.max(40_000, Math.min(height * factor, 45_000_000));
       camera.zoomOut(zoomStep);
     },
+    moveUp: (stepDeg = 6) => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      if (isFollowingRef.current) {
+        isFollowingRef.current = false;
+        viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+      }
+      viewer.camera.rotateUp(Cesium.Math.toRadians(stepDeg));
+    },
+    moveDown: (stepDeg = 6) => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      if (isFollowingRef.current) {
+        isFollowingRef.current = false;
+        viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+      }
+      viewer.camera.rotateDown(Cesium.Math.toRadians(stepDeg));
+    },
+    tiltUp: (stepDeg = 4) => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      viewer.camera.lookUp(Cesium.Math.toRadians(stepDeg));
+    },
+    tiltDown: (stepDeg = 4) => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      viewer.camera.lookDown(Cesium.Math.toRadians(stepDeg));
+    },
+    centerEarth: () => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      if (isFollowingRef.current) {
+        isFollowingRef.current = false;
+        viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+      }
+      const carto = viewer.camera.positionCartographic;
+      const lon = carto ? Cesium.Math.toDegrees(carto.longitude) : 0;
+      const height = carto ? Math.max(2_500_000, carto.height) : 23_500_000;
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(lon, 0, height),
+        orientation: {
+          heading: 0,
+          pitch: Cesium.Math.toRadians(-90),
+          roll: 0,
+        },
+        duration: 0.8,
+      });
+    },
     resetCamera: () => {
       const viewer = viewerRef.current;
       if (!viewer) return;
@@ -235,7 +280,7 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
         viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
       }
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(0, 15, 23_500_000),
+        destination: Cesium.Cartesian3.fromDegrees(0, 0, 23_500_000),
         orientation: {
           heading: 0,
           pitch: Cesium.Math.toRadians(-90),
@@ -251,9 +296,9 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
         isFollowingRef.current = false;
         viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
       }
-      // Perfectly frames the whole spherical Earth with cosmic space background
+      // Perfectly frames the whole spherical Earth dead-center with cosmic space background
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(15, 10, 24_500_000),
+        destination: Cesium.Cartesian3.fromDegrees(0, 0, 24_500_000),
         orientation: {
           heading: 0,
           pitch: Cesium.Math.toRadians(-90),
@@ -266,10 +311,10 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
       const viewer = viewerRef.current;
       if (!viewer) return;
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(0, 15, 2_400_000),
+        destination: Cesium.Cartesian3.fromDegrees(0, 0, 2_400_000),
         orientation: {
           heading: 0,
-          pitch: Cesium.Math.toRadians(-65),
+          pitch: Cesium.Math.toRadians(-90),
           roll: 0,
         },
         duration: 0.9,
@@ -279,10 +324,10 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
       const viewer = viewerRef.current;
       if (!viewer) return;
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(0, 15, 20_000_000),
+        destination: Cesium.Cartesian3.fromDegrees(0, 0, 18_000_000),
         orientation: {
           heading: 0,
-          pitch: Cesium.Math.toRadians(-80),
+          pitch: Cesium.Math.toRadians(-90),
           roll: 0,
         },
         duration: 0.9,
@@ -292,7 +337,7 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
       const viewer = viewerRef.current;
       if (!viewer) return;
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(0, 10, 48_000_000),
+        destination: Cesium.Cartesian3.fromDegrees(0, 0, 48_000_000),
         orientation: {
           heading: 0,
           pitch: Cesium.Math.toRadians(-90),
@@ -305,7 +350,7 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
       const viewer = viewerRef.current;
       if (!viewer) return;
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(0, 10, 95_000_000),
+        destination: Cesium.Cartesian3.fromDegrees(0, 0, 95_000_000),
         orientation: {
           heading: 0,
           pitch: Cesium.Math.toRadians(-90),
@@ -320,10 +365,15 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
       const camera = viewer.camera;
       const carto = camera.positionCartographic;
       const lon = carto ? Cesium.Math.toDegrees(carto.longitude) : 0;
-      const lat = carto ? Cesium.Math.toDegrees(carto.latitude) : 15;
+      const lat = carto ? Cesium.Math.toDegrees(carto.latitude) : 0;
       const targetMeters = Math.max(80_000, Math.min(altitudeKm * 1000, 150_000_000));
       camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(lon, lat, targetMeters),
+        orientation: {
+          heading: camera.heading,
+          pitch: Cesium.Math.toRadians(-90),
+          roll: 0,
+        },
         duration: 0.7,
       });
     },
@@ -630,9 +680,9 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
       containerEl.addEventListener("contextmenu", handleContextMenu);
     }
 
-    // Initial camera view over Earth
+    // Initial camera view over Earth (dead-center at equator)
     viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(20, 15, 23_500_000),
+      destination: Cesium.Cartesian3.fromDegrees(0, 0, 24_000_000),
       orientation: {
         heading: 0,
         pitch: Cesium.Math.toRadians(-90),
@@ -725,31 +775,28 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
               }
             }
 
-            // Camera follow mode
+            // Camera follow mode: keep Earth centered beneath satellite
             if (followSatelliteRef.current) {
               const carto = viewer.camera.positionCartographic;
-              const altKm = carto ? Math.round(carto.height / 1000) : 1000;
-              // If user zooms out to Full Earth view (>20,000 km), cleanly release follow lock
-              if (altKm > 20000 && isFollowingRef.current) {
-                isFollowingRef.current = false;
+              const currentHeight = carto
+                ? carto.height
+                : Math.max(14_000_000, sub.heightMeters * 1.6);
+              if (isFollowingRef.current) {
                 viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-              } else {
-                const range = Math.max(1_100_000, sub.heightMeters * 2.0);
-                if (!isFollowingRef.current) {
-                  isFollowingRef.current = true;
-                  scene.camera.lookAt(
-                    satPos,
-                    new Cesium.HeadingPitchRange(
-                      Cesium.Math.toRadians(45),
-                      Cesium.Math.toRadians(-28),
-                      range
-                    )
-                  );
-                } else {
-                  const transform = Cesium.Transforms.eastNorthUpToFixedFrame(satPos);
-                  scene.camera.lookAtTransform(transform);
-                }
               }
+              isFollowingRef.current = true;
+              viewer.camera.setView({
+                destination: Cesium.Cartesian3.fromDegrees(
+                  sub.longitudeDeg,
+                  sub.latitudeDeg,
+                  currentHeight
+                ),
+                orientation: {
+                  heading: viewer.camera.heading,
+                  pitch: Cesium.Math.toRadians(-90),
+                  roll: 0,
+                },
+              });
             }
           }
         }
@@ -1243,20 +1290,23 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
       velocityKmS: velocity,
     });
 
-    // 10. Initial smooth fly-to framing the satellite
-    const range = Math.max(3_500_000, pt.heightMeters * 3.0);
+    // 10. Initial smooth fly-to framing the satellite with Earth kept dead-center
+    const viewHeight = Math.max(
+      pt.heightMeters < 2_000_000 ? 3_200_000 : pt.heightMeters * 1.6,
+      14_000_000
+    );
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(
         pt.longitudeDeg,
-        pt.latitudeDeg - 8,
-        pt.heightMeters + range
+        pt.latitudeDeg,
+        viewHeight
       ),
       orientation: {
-        heading: Cesium.Math.toRadians(0),
-        pitch: Cesium.Math.toRadians(-40),
+        heading: 0,
+        pitch: Cesium.Math.toRadians(-90),
         roll: 0.0,
       },
-      duration: 1.0,
+      duration: 0.9,
     });
   }, [focusedId, showFootprint, getSimulatedDate, onTelemetryUpdate]);
 
