@@ -22,12 +22,82 @@ if (typeof window !== "undefined") {
 // Distinct high-visibility tracking highlight color (Electric Solar Amber/Gold)
 const TRACKING_COLOR = Cesium.Color.fromCssColorString("#FFE600");
 
-const STATUS_COLOR: Record<SatelliteStatus, Cesium.Color> = {
-  active: Cesium.Color.fromCssColorString("#00F2FE"),
-  degraded: Cesium.Color.fromCssColorString("#F5A623"),
-  inactive: Cesium.Color.fromCssColorString("#8B98B3"),
-  decayed: Cesium.Color.fromCssColorString("#F2545B"),
+// High-contrast status color coding
+export const STATUS_COLOR: Record<SatelliteStatus, Cesium.Color> = {
+  active: Cesium.Color.fromCssColorString("#00F2FE"),   // Electric Neon Cyan for active operational moving satellites
+  degraded: Cesium.Color.fromCssColorString("#FB923C"), // Safety Warning Orange for degraded satellites
+  inactive: Cesium.Color.fromCssColorString("#94A3B8"), // Cold Steel Slate for inactive / derelict satellites
+  decayed: Cesium.Color.fromCssColorString("#EF4444"),  // Danger Crimson Red for dead satellites & space debris
 };
+
+// Dedicated identifiable color per active satellite so each moving orbit is visually distinct
+export const ACTIVE_SATELLITE_ORBIT_COLORS: Record<string, Cesium.Color> = {
+  "sat-25544": Cesium.Color.fromCssColorString("#00F2FE"), // ISS: Electric Cyan
+  "sat-20580": Cesium.Color.fromCssColorString("#38BDF8"), // Hubble: Sky Blue
+  "sat-44713": Cesium.Color.fromCssColorString("#818CF8"), // Starlink: Electric Indigo
+  "sat-48274": Cesium.Color.fromCssColorString("#10B981"), // Tiangong: Emerald Neon
+  "sat-24876": Cesium.Color.fromCssColorString("#FBBF24"), // GPS: Solar Amber Gold
+  "sat-49260": Cesium.Color.fromCssColorString("#2DD4BF"), // Landsat: Mint Turquoise
+  "sat-46984": Cesium.Color.fromCssColorString("#C084FC"), // Sentinel: Bright Violet
+};
+
+const ACTIVE_FALLBACK_PALETTE = [
+  Cesium.Color.fromCssColorString("#00F2FE"),
+  Cesium.Color.fromCssColorString("#38BDF8"),
+  Cesium.Color.fromCssColorString("#818CF8"),
+  Cesium.Color.fromCssColorString("#10B981"),
+  Cesium.Color.fromCssColorString("#FBBF24"),
+  Cesium.Color.fromCssColorString("#2DD4BF"),
+  Cesium.Color.fromCssColorString("#C084FC"),
+  Cesium.Color.fromCssColorString("#34D399"),
+];
+
+export function getSatelliteColor(sat: Satellite, isFocused = false): Cesium.Color {
+  if (isFocused) return TRACKING_COLOR;
+  if (sat.status === "active") {
+    return (
+      ACTIVE_SATELLITE_ORBIT_COLORS[sat.id] ||
+      ACTIVE_FALLBACK_PALETTE[Math.abs(sat.noradId) % ACTIVE_FALLBACK_PALETTE.length]
+    );
+  }
+  return STATUS_COLOR[sat.status] || STATUS_COLOR.active;
+}
+
+export function getSatelliteOrbitStyle(
+  sat: Satellite,
+  isFocused = false
+): { color: Cesium.Color; width: number } {
+  if (isFocused) {
+    return {
+      color: TRACKING_COLOR.withAlpha(0.95),
+      width: 3.5,
+    };
+  }
+  if (sat.status === "active") {
+    const baseColor = getSatelliteColor(sat, false);
+    return {
+      color: baseColor.withAlpha(0.72),
+      width: 1.8,
+    };
+  }
+  if (sat.status === "degraded") {
+    return {
+      color: STATUS_COLOR.degraded.withAlpha(0.55),
+      width: 1.4,
+    };
+  }
+  if (sat.status === "inactive") {
+    return {
+      color: STATUS_COLOR.inactive.withAlpha(0.28),
+      width: 1.0,
+    };
+  }
+  // decayed / dead debris
+  return {
+    color: STATUS_COLOR.decayed.withAlpha(0.35),
+    width: 1.0,
+  };
+}
 
 export interface LiveTelemetry {
   satelliteId: string;
@@ -874,7 +944,7 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
     // Add or update points for all 611 satellites
     satellites.forEach((sat) => {
       const isFocused = sat.id === focusedIdRef.current;
-      const statusColor = STATUS_COLOR[sat.status] || STATUS_COLOR.active;
+      const pointColor = getSatelliteColor(sat, isFocused);
       const pt = computeSubSatellitePoint(sat, simDate);
       if (!pt) return;
 
@@ -884,20 +954,29 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
         pt.heightMeters
       );
 
+      const isMovingActive = sat.status === "active";
+      const pixelSize = isFocused ? 18 : isMovingActive ? 9 : 6;
+      const outlineColor = isFocused
+        ? Cesium.Color.WHITE
+        : isMovingActive
+        ? Cesium.Color.fromCssColorString("#003B46")
+        : Cesium.Color.fromCssColorString("#060B14");
+      const outlineWidth = isFocused ? 3.5 : isMovingActive ? 2.0 : 1.2;
+
       const existing = pointsMap.get(sat.id);
       if (existing) {
         existing.position = position;
-        existing.pixelSize = isFocused ? 18 : 7;
-        existing.color = isFocused ? TRACKING_COLOR : statusColor;
-        existing.outlineColor = isFocused ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString("#060B14");
-        existing.outlineWidth = isFocused ? 3.5 : 1.5;
+        existing.pixelSize = pixelSize;
+        existing.color = pointColor;
+        existing.outlineColor = outlineColor;
+        existing.outlineWidth = outlineWidth;
       } else {
         const point = pointCollection.add({
           position,
-          pixelSize: isFocused ? 18 : 7,
-          color: isFocused ? TRACKING_COLOR : statusColor,
-          outlineColor: isFocused ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString("#060B14"),
-          outlineWidth: isFocused ? 3.5 : 1.5,
+          pixelSize,
+          color: pointColor,
+          outlineColor,
+          outlineWidth,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
           id: sat.id,
         });
@@ -906,7 +985,7 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
     });
   }, [satellites, getSimulatedDate]);
 
-  // 7. Render 3D Orbital Trajectories for Fleet (Tracked Satellite highlighted in TRACKING_COLOR)
+  // 7. Render 3D Orbital Trajectories for Fleet (Active Moving Orbits Rendered in Front with Distinct Colors)
   useEffect(() => {
     const polylineCollection = polylineCollectionRef.current;
     if (!polylineCollection) return;
@@ -925,7 +1004,18 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
       ? satellites
       : satellites.filter((s) => s.id === focusedId);
 
-    satellitesToRender.forEach((sat) => {
+    // Sort so inactive/decayed are drawn first in background, and active moving satellites are drawn in front
+    const sortedToRender = [...satellitesToRender].sort((a, b) => {
+      const rank: Record<SatelliteStatus, number> = {
+        inactive: 1,
+        decayed: 2,
+        degraded: 3,
+        active: 4, // drawn last = rendered on top in front!
+      };
+      return (rank[a.status] || 0) - (rank[b.status] || 0);
+    });
+
+    sortedToRender.forEach((sat) => {
       const isFocused = sat.id === focusedId;
       const orbitPoints = sampleFullOrbit3D(sat, simDate, isFocused ? 72 : 48);
       if (orbitPoints.length < 3) return;
@@ -934,16 +1024,13 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
         Cesium.Cartesian3.fromDegrees(p.longitudeDeg, p.latitudeDeg, p.heightMeters)
       );
 
-      const statusColor = STATUS_COLOR[sat.status] || STATUS_COLOR.active;
-      const lineColor = isFocused
-        ? TRACKING_COLOR.withAlpha(0.95)
-        : statusColor.withAlpha(0.4);
+      const style = getSatelliteOrbitStyle(sat, isFocused);
 
       const polyline = polylineCollection.add({
         positions,
-        width: isFocused ? 3.5 : 1.2,
+        width: style.width,
         material: Cesium.Material.fromType("Color", {
-          color: lineColor,
+          color: style.color,
         }),
       });
 
@@ -961,11 +1048,15 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
     for (const [id, pt] of pointsMap.entries()) {
       const isFocused = id === focusedId;
       const sat = satellitesRef.current.find((s) => s.id === id);
-      const statusColor = sat ? STATUS_COLOR[sat.status] || STATUS_COLOR.active : STATUS_COLOR.active;
-      pt.pixelSize = isFocused ? 18 : 7;
-      pt.color = isFocused ? TRACKING_COLOR : statusColor;
-      pt.outlineColor = isFocused ? Cesium.Color.WHITE : Cesium.Color.fromCssColorString("#060B14");
-      pt.outlineWidth = isFocused ? 3.5 : 1.5;
+      const isMovingActive = sat ? sat.status === "active" : false;
+      pt.pixelSize = isFocused ? 18 : isMovingActive ? 9 : 6;
+      pt.color = sat ? getSatelliteColor(sat, isFocused) : isFocused ? TRACKING_COLOR : STATUS_COLOR.active;
+      pt.outlineColor = isFocused
+        ? Cesium.Color.WHITE
+        : isMovingActive
+        ? Cesium.Color.fromCssColorString("#003B46")
+        : Cesium.Color.fromCssColorString("#060B14");
+      pt.outlineWidth = isFocused ? 3.5 : isMovingActive ? 2.0 : 1.2;
     }
 
     // Clean up previous focus entities (ground track, footprint, forward path, past trail, nadir beam, pulse ring)

@@ -58,7 +58,7 @@ export function OrbitViewerPage() {
   const [enableLighting, setEnableLighting] = useState(false);
   const [enableBloom, setEnableBloom] = useState(false);
   const [followSatellite, setFollowSatellite] = useState(false);
-  const [simSpeed, setSimSpeed] = useState<number>(5);
+  const [simSpeed, setSimSpeed] = useState<number>(15);
   const [imageryStyle, setImageryStyle] = useState<ImageryStyle>("satellite");
 
   // Selection Handler: Auto-stop Earth rotation & auto-follow satellite on pick
@@ -487,18 +487,6 @@ export function OrbitViewerPage() {
                   <Activity className="h-3 w-3" />
                   <span>City Lights</span>
                 </button>
-                <button
-                  onClick={() => setImageryStyle("dark")}
-                  title="Tactical Deep Space Cyber Dark"
-                  className={cn(
-                    "flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-all",
-                    imageryStyle === "dark"
-                      ? "bg-cyan-500/25 text-cyan-300 font-semibold shadow-sm border border-cyan-500/40"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <span className="text-[11px] font-mono">Dark</span>
-                </button>
               </div>
 
               {/* HDR Bloom Glow Toggle */}
@@ -517,12 +505,12 @@ export function OrbitViewerPage() {
               </button>
             </div>
 
-            {/* Time Warp / Simulation Speed Selector */}
+            {/* Time Warp / Simulation Speed Selector (1x and 5x removed) */}
             <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/85 p-1 shadow-xl backdrop-blur-md pointer-events-auto">
               <span className="px-2 text-[10px] font-mono uppercase text-muted-foreground flex items-center gap-1">
                 <FastForward className="h-3 w-3 text-cyan-400" /> Warp:
               </span>
-              {[1, 5, 15, 60].map((speed) => (
+              {[15, 30, 60, 120].map((speed) => (
                 <button
                   key={speed}
                   onClick={() => setSimSpeed(speed)}
@@ -877,13 +865,49 @@ export function OrbitViewerPage() {
                 {/* Status Footer */}
                 <div className="mt-2 flex items-center justify-between border-t border-border/50 pt-1.5 text-[10px]">
                   <span className="text-muted-foreground">State:</span>
-                  <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 font-semibold text-emerald-300">
-                    {focusedSatellite.status.toUpperCase()} (ACTIVE)
+                  <span
+                    className={cn(
+                      "rounded px-1.5 py-0.5 font-semibold text-[10px] font-mono",
+                      focusedSatellite.status === "active"
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        : focusedSatellite.status === "degraded"
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                        : focusedSatellite.status === "inactive"
+                        ? "bg-slate-500/20 text-slate-300 border border-slate-500/30"
+                        : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                    )}
+                  >
+                    {focusedSatellite.status === "active" ? "ACTIVE • MOVING" : focusedSatellite.status.toUpperCase()}
                   </span>
                 </div>
               </div>
             )
           )}
+
+          {/* Status & Orbit Color Legend Overlay */}
+          <div className="absolute bottom-16 left-3 z-10 hidden sm:flex items-center gap-2.5 rounded-lg border border-border/70 bg-[#060B14]/90 px-3 py-1.5 shadow-xl backdrop-blur-md pointer-events-auto text-[11px] font-mono">
+            <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Orbits:</span>
+            <span className="flex items-center gap-1.5 text-emerald-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(52,211,153,0.9)]" />
+              Active (Moving)
+            </span>
+            <span className="flex items-center gap-1.5 text-amber-300">
+              <span className="h-2 w-2 rounded-full bg-amber-400" />
+              Degraded
+            </span>
+            <span className="flex items-center gap-1.5 text-slate-300">
+              <span className="h-2 w-2 rounded-full bg-slate-400" />
+              Inactive (Derelict)
+            </span>
+            <span className="flex items-center gap-1.5 text-rose-400">
+              <span className="h-2 w-2 rounded-full bg-rose-500" />
+              Dead (Debris)
+            </span>
+            <span className="flex items-center gap-1.5 text-amber-200 border-l border-border/60 pl-2">
+              <span className="h-2 w-2 rounded-full bg-[#FFE600] shadow-[0_0_8px_rgba(255,230,0,0.9)]" />
+              Tracked
+            </span>
+          </div>
 
           {/* Bottom Control Bar: Zoom Controls, Altitude HUD, Presets, Slider & Sync Output */}
           <div className="absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-2 pointer-events-auto">

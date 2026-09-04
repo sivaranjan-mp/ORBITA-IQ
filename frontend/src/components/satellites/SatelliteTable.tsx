@@ -35,7 +35,8 @@ export function SatelliteTable({
   const { alerts } = useAlerts();
   const [query, setQuery] = useState("");
   const [riskOnly, setRiskOnly] = useState(false);
-  const [sortBy, setSortBy] = useState<"collision" | "name" | "norad" | "altitude">("collision");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [sortBy, setSortBy] = useState<"status" | "collision" | "name" | "norad" | "altitude">("status");
 
   // Map each satellite NORAD ID to its earliest upcoming conjunction alert
   const collisionMap = useMemo(() => {
@@ -58,6 +59,14 @@ export function SatelliteTable({
     return satellites.filter((s) => collisionMap.has(s.noradId)).length;
   }, [satellites, collisionMap]);
 
+  const activeCount = useMemo(() => {
+    return satellites.filter((s) => s.status === "active").length;
+  }, [satellites]);
+
+  const inactiveCount = useMemo(() => {
+    return satellites.filter((s) => s.status === "inactive" || s.status === "decayed").length;
+  }, [satellites]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let rows = satellites;
@@ -73,11 +82,30 @@ export function SatelliteTable({
       );
     }
 
+    if (statusFilter === "active") {
+      rows = rows.filter((sat) => sat.status === "active");
+    } else if (statusFilter === "inactive") {
+      rows = rows.filter((sat) => sat.status === "inactive" || sat.status === "decayed" || sat.status === "degraded");
+    }
+
     if (riskOnly) {
       rows = rows.filter((sat) => collisionMap.has(sat.noradId));
     }
 
     return [...rows].sort((a, b) => {
+      if (sortBy === "status") {
+        const priority: Record<string, number> = {
+          active: 1,    // Active moving satellites first!
+          degraded: 2,  // Degraded moving satellites second
+          inactive: 3,  // Inactive derelicts third
+          decayed: 4,   // Dead debris last
+        };
+        const pA = priority[a.status] ?? 99;
+        const pB = priority[b.status] ?? 99;
+        if (pA !== pB) return pA - pB;
+        return (a.name || "").localeCompare(b.name || "");
+      }
+
       const colA = collisionMap.get(a.noradId);
       const colB = collisionMap.get(b.noradId);
 
@@ -104,7 +132,7 @@ export function SatelliteTable({
 
       return 0;
     });
-  }, [satellites, query, riskOnly, sortBy, collisionMap]);
+  }, [satellites, query, riskOnly, statusFilter, sortBy, collisionMap]);
 
   return (
     <div className="space-y-3">
@@ -125,15 +153,49 @@ export function SatelliteTable({
           <div className="flex items-center rounded-md border border-border bg-card p-0.5 text-xs">
             <button
               type="button"
-              onClick={() => setRiskOnly(false)}
+              onClick={() => {
+                setRiskOnly(false);
+                setStatusFilter("all");
+              }}
               className={cn(
                 "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                !riskOnly
-                  ? "bg-primary text-primary-foreground shadow-sm"
+                !riskOnly && statusFilter === "all"
+                  ? "bg-primary text-primary-foreground shadow-sm font-semibold"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
               All ({satellites.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRiskOnly(false);
+                setStatusFilter("active");
+              }}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors flex items-center gap-1",
+                !riskOnly && statusFilter === "active"
+                  ? "bg-emerald-500 text-emerald-950 font-semibold shadow-sm"
+                  : "text-emerald-400 hover:text-emerald-300"
+              )}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Active ({activeCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRiskOnly(false);
+                setStatusFilter("inactive");
+              }}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors flex items-center gap-1",
+                !riskOnly && statusFilter === "inactive"
+                  ? "bg-slate-400 text-slate-950 font-semibold shadow-sm"
+                  : "text-slate-300 hover:text-slate-200"
+              )}
+            >
+              Inactive/Dead ({inactiveCount})
             </button>
             <button
               type="button"
@@ -146,7 +208,7 @@ export function SatelliteTable({
               )}
             >
               <AlertTriangle className="h-3 w-3" />
-              At Collision Risk ({atRiskCount})
+              Collision Risk ({atRiskCount})
             </button>
           </div>
         </div>
@@ -157,9 +219,10 @@ export function SatelliteTable({
           <span className="text-muted-foreground font-medium">Sort:</span>
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "collision" | "name" | "norad" | "altitude")}
+            onChange={(e) => setSortBy(e.target.value as "status" | "collision" | "name" | "norad" | "altitude")}
             className="rounded border border-border bg-card px-2 py-1 text-xs font-medium text-foreground outline-none cursor-pointer"
           >
+            <option value="status">Status (Active / Moving First)</option>
             <option value="collision">Collision Risk (Earliest First)</option>
             <option value="name">Name (A–Z)</option>
             <option value="norad">NORAD ID</option>
