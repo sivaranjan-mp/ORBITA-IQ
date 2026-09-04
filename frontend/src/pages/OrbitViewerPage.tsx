@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   Globe2,
   Sun,
@@ -20,6 +20,10 @@ import {
   Maximize2,
   ZoomIn,
   ZoomOut,
+  Move,
+  Search,
+  HelpCircle,
+  Sliders,
 } from "lucide-react";
 
 import {
@@ -56,6 +60,123 @@ export function OrbitViewerPage() {
   const [followSatellite, setFollowSatellite] = useState(false);
   const [simSpeed, setSimSpeed] = useState<number>(5);
   const [imageryStyle, setImageryStyle] = useState<ImageryStyle>("satellite");
+
+  // Selection Handler: Auto-stop Earth rotation & auto-follow satellite on pick
+  const handleSelectSatellite = useCallback((id: string | null) => {
+    if (id) {
+      setFocusedId(id);
+      setAutoRotate(false); // Stop Earth auto-rotation
+      setFollowSatellite(true); // Auto-lock camera and follow satellite in orbit
+    } else {
+      setFocusedId(null);
+      setFollowSatellite(false);
+    }
+  }, []);
+
+  // Mouse & Camera Zoom Navigation Controls
+  const [mouseMode, setMouseMode] = useState<"orbit" | "zoom">("orbit");
+  const [cameraAltitudeKm, setCameraAltitudeKm] = useState<number>(23500);
+  const [showMouseHelp, setShowMouseHelp] = useState(false);
+  const zoomIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Continuous hold-to-zoom handlers
+  const startContinuousZoom = (direction: "in" | "out") => {
+    if (direction === "in") {
+      globeRef.current?.zoomIn(0.18);
+    } else {
+      globeRef.current?.zoomOut(0.24);
+    }
+
+    if (zoomIntervalRef.current) clearInterval(zoomIntervalRef.current);
+    zoomIntervalRef.current = setInterval(() => {
+      if (direction === "in") {
+        globeRef.current?.zoomIn(0.12);
+      } else {
+        globeRef.current?.zoomOut(0.16);
+      }
+    }, 70);
+  };
+
+  const stopContinuousZoom = () => {
+    if (zoomIntervalRef.current) {
+      clearInterval(zoomIntervalRef.current);
+      zoomIntervalRef.current = null;
+    }
+  };
+
+  // Global Keyboard Shortcuts for Zoom (+ / - / 0)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement).isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        globeRef.current?.zoomIn(0.25);
+      } else if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        globeRef.current?.zoomOut(0.35);
+      } else if (e.key === "0" || e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        handleSelectSatellite(null);
+        globeRef.current?.viewFullEarth();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      if (zoomIntervalRef.current) clearInterval(zoomIntervalRef.current);
+    };
+  }, []);
+
+  // Orbit Shell metadata based on live camera altitude
+  const shellInfo = useMemo(() => {
+    if (cameraAltitudeKm < 2000) {
+      return {
+        shell: "LEO",
+        label: "Low Earth Orbit",
+        color: "text-emerald-400 bg-emerald-500/15 border-emerald-500/35",
+      };
+    }
+    if (cameraAltitudeKm < 30000) {
+      return {
+        shell: "MEO",
+        label: "Medium Earth (GPS/Nav)",
+        color: "text-cyan-400 bg-cyan-500/15 border-cyan-500/35",
+      };
+    }
+    if (cameraAltitudeKm < 50000) {
+      return {
+        shell: "GEO",
+        label: "Geostationary Belt",
+        color: "text-amber-400 bg-amber-500/15 border-amber-500/35",
+      };
+    }
+    return {
+      shell: "DEEP",
+      label: "Deep Space Volume",
+      color: "text-purple-400 bg-purple-500/15 border-purple-500/35",
+    };
+  }, [cameraAltitudeKm]);
+
+  // Logarithmic slider mapping [0..100] <=> [300km..100000km]
+  const currentSliderVal = useMemo(() => {
+    const clamped = Math.max(300, Math.min(cameraAltitudeKm, 100000));
+    return Math.round((Math.log(clamped / 300) / Math.log(100000 / 300)) * 100);
+  }, [cameraAltitudeKm]);
+
+  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    const targetAltKm = Math.round(300 * Math.pow(100000 / 300, val / 100));
+    setCameraAltitudeKm(targetAltKm);
+    globeRef.current?.setAltitude(targetAltKm);
+  };
 
   // Real-time telemetry state for focused object
   const [liveTelemetry, setLiveTelemetry] = useState<LiveTelemetry | null>(null);
@@ -159,8 +280,11 @@ export function OrbitViewerPage() {
               isLoading={isLoading}
               focusedId={focusedId}
               onFocus={(id) => {
-                setFocusedId(id === focusedId ? null : id);
-                if (id !== focusedId) setFollowSatellite(false);
+                if (!id || id === focusedId) {
+                  handleSelectSatellite(null);
+                } else {
+                  handleSelectSatellite(id);
+                }
               }}
             />
           </div>
@@ -212,6 +336,36 @@ export function OrbitViewerPage() {
                   )}
                 >
                   My Fleet
+                </button>
+              </div>
+
+              {/* Mouse Movement Mode: Rotate vs Drag Zoom */}
+              <div className="flex items-center rounded-md bg-secondary/60 p-0.5 border border-border/50">
+                <button
+                  onClick={() => setMouseMode("orbit")}
+                  title="Orbit Mode: Left-drag rotates Earth, Wheel & Right-drag zooms"
+                  className={cn(
+                    "flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-all",
+                    mouseMode === "orbit"
+                      ? "bg-cyan-500/25 text-cyan-300 font-semibold shadow-sm border border-cyan-500/40"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Move className="h-3 w-3" />
+                  <span>Rotate</span>
+                </button>
+                <button
+                  onClick={() => setMouseMode("zoom")}
+                  title="Mouse Drag Zoom Mode: Click and drag mouse up/down anywhere on globe to zoom"
+                  className={cn(
+                    "flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-all",
+                    mouseMode === "zoom"
+                      ? "bg-cyan-500/25 text-cyan-300 font-semibold shadow-sm border border-cyan-500/40 animate-pulse"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Search className="h-3 w-3" />
+                  <span>Drag Zoom</span>
                 </button>
               </div>
 
@@ -279,16 +433,16 @@ export function OrbitViewerPage() {
               {focusedId && (
                 <button
                   onClick={() => setFollowSatellite(!followSatellite)}
-                  title="Lock Camera & Follow Satellite in Orbit"
+                  title={followSatellite ? "Camera locked to satellite orbit (Click to unlock)" : "Lock Camera & Follow Satellite in Orbit"}
                   className={cn(
-                    "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all",
+                    "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all",
                     followSatellite
-                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm"
+                      ? "bg-amber-500/25 text-amber-300 border border-amber-500/50 shadow-[0_0_12px_rgba(255,230,0,0.25)]"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                   )}
                 >
-                  <Camera className="h-3.5 w-3.5" />
-                  <span>Chaser Cam</span>
+                  <Camera className={cn("h-3.5 w-3.5", followSatellite && "text-amber-300 animate-pulse")} />
+                  <span>{followSatellite ? "Following Orbit" : "Follow Cam"}</span>
                 </button>
               )}
 
@@ -385,14 +539,182 @@ export function OrbitViewerPage() {
             </div>
           </div>
 
+          {/* Mouse Drag Zoom Active Notification Banner (Top Center) */}
+          {mouseMode === "zoom" && (
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2.5 rounded-full border border-cyan-500/50 bg-[#060B14]/92 px-4 py-1.5 shadow-[0_0_20px_rgba(6,182,212,0.3)] backdrop-blur-md pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-200">
+              <Search className="h-3.5 w-3.5 text-cyan-400 animate-pulse" />
+              <span className="text-xs font-medium text-cyan-200">
+                Mouse Drag Zoom Active: <strong className="text-white">Drag up to zoom in, down to zoom out</strong>
+              </span>
+              <button
+                onClick={() => setMouseMode("orbit")}
+                className="ml-2 rounded-full border border-cyan-500/40 bg-cyan-500/20 px-2.5 py-0.5 text-[10px] font-semibold text-cyan-300 hover:bg-cyan-500/35 transition-colors"
+              >
+                Back to Rotate
+              </button>
+            </div>
+          )}
+
+          {/* Floating Right Navigation & Zoom Dock */}
+          <div className="absolute right-3 top-16 z-20 flex flex-col items-center gap-1.5 rounded-xl border border-border/80 bg-[#060B14]/90 p-1.5 shadow-2xl backdrop-blur-md pointer-events-auto">
+            {/* Zoom In (+) with continuous hold */}
+            <button
+              onMouseDown={() => startContinuousZoom("in")}
+              onMouseUp={stopContinuousZoom}
+              onMouseLeave={stopContinuousZoom}
+              onTouchStart={() => startContinuousZoom("in")}
+              onTouchEnd={stopContinuousZoom}
+              onClick={() => globeRef.current?.zoomIn()}
+              title="Zoom In Closer (Click or Hold / Shortcut: +)"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary/60 text-foreground hover:bg-cyan-500/25 hover:text-cyan-300 transition-all active:scale-95 border border-border/40"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </button>
+
+            {/* Vertical Altitude Slider */}
+            <div className="flex flex-col items-center py-1 group relative">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={currentSliderVal}
+                onChange={handleSliderChange}
+                aria-label="Orbit Altitude Zoom Slider"
+                title={`Altitude: ${cameraAltitudeKm.toLocaleString()} km (${shellInfo.shell})`}
+                className="h-24 w-1.5 accent-cyan-400 bg-secondary/80 rounded-lg cursor-pointer [appearance:slider-vertical]"
+              />
+            </div>
+
+            {/* Zoom Out (-) with continuous hold */}
+            <button
+              onMouseDown={() => startContinuousZoom("out")}
+              onMouseUp={stopContinuousZoom}
+              onMouseLeave={stopContinuousZoom}
+              onTouchStart={() => startContinuousZoom("out")}
+              onTouchEnd={stopContinuousZoom}
+              onClick={() => globeRef.current?.zoomOut()}
+              title="Zoom Out Farther (Click or Hold / Shortcut: -)"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary/60 text-foreground hover:bg-cyan-500/25 hover:text-cyan-300 transition-all active:scale-95 border border-border/40"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </button>
+
+            <div className="h-[1px] w-6 bg-border/60 my-0.5" />
+
+            {/* Full Earth View Button */}
+            <button
+              onClick={() => {
+                handleSelectSatellite(null);
+                globeRef.current?.viewFullEarth();
+              }}
+              title="Full Earth View (Whole Earth in Space / Shortcut: F or 0)"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-cyan-400 hover:bg-cyan-500/20 hover:text-cyan-300 transition-all active:scale-95"
+            >
+              <Globe2 className="h-4 w-4" />
+            </button>
+
+            {/* Reset View */}
+            <button
+              onClick={() => {
+                handleSelectSatellite(null);
+                globeRef.current?.resetCamera();
+              }}
+              title="Reset Earth View (Shortcut: 0)"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary/70 hover:text-foreground transition-colors"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+
+            {/* Mouse Mode Quick Toggle */}
+            <button
+              onClick={() => setMouseMode(mouseMode === "orbit" ? "zoom" : "orbit")}
+              title={mouseMode === "zoom" ? "Switch to Orbit / Rotate Mode" : "Switch to Mouse Drag Zoom Mode"}
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-lg transition-all",
+                mouseMode === "zoom"
+                  ? "bg-cyan-500/30 text-cyan-300 border border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.25)] animate-pulse"
+                  : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+              )}
+            >
+              {mouseMode === "zoom" ? <Search className="h-3.5 w-3.5" /> : <Move className="h-3.5 w-3.5" />}
+            </button>
+
+            {/* Mouse Movement Zoom Help Guide Button */}
+            <button
+              onClick={() => setShowMouseHelp(!showMouseHelp)}
+              title="Mouse Movement Zoom Guide"
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
+                showMouseHelp
+                  ? "bg-cyan-500/25 text-cyan-300"
+                  : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+              )}
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Mouse Movement Zoom Help Guide Modal / Flyout */}
+          {showMouseHelp && (
+            <div className="absolute right-14 top-16 z-30 w-72 rounded-xl border border-cyan-500/40 bg-[#060B14]/95 p-3.5 shadow-2xl backdrop-blur-md text-foreground animate-in fade-in slide-in-from-right-2 duration-150">
+              <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                  <Search className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>Mouse Movement Zoom Guide</span>
+                </div>
+                <button
+                  onClick={() => setShowMouseHelp(false)}
+                  className="rounded p-1 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="mt-2.5 space-y-2 text-[11px] text-muted-foreground">
+                <div className="flex items-start gap-2">
+                  <span className="font-mono text-cyan-400 font-bold shrink-0">1.</span>
+                  <div>
+                    <strong className="text-white">Mouse Scroll Wheel:</strong> Scroll forward to zoom in, backward to zoom out directly towards the cursor.
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="font-mono text-cyan-400 font-bold shrink-0">2.</span>
+                  <div>
+                    <strong className="text-white">Right-Click Drag:</strong> Hold right mouse button and move mouse up to zoom in, down to zoom out.
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="font-mono text-cyan-400 font-bold shrink-0">3.</span>
+                  <div>
+                    <strong className="text-white">Middle Drag / Shift+Drag:</strong> Hold Middle Mouse Button or Shift + Left Drag to zoom up/down.
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="font-mono text-cyan-400 font-bold shrink-0">4.</span>
+                  <div>
+                    <strong className="text-white">Drag Zoom Mode:</strong> Enable the Drag Zoom tool to zoom in/out with standard left-click drag.
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 border-t border-border/40 pt-1.5">
+                  <span className="font-mono text-cyan-400 font-bold shrink-0">5.</span>
+                  <div>
+                    <strong className="text-white">Keyboard:</strong> Press <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">+</kbd> to zoom in, <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">-</kbd> to zoom out, <kbd className="rounded bg-secondary/80 px-1 py-0.5 text-[10px] font-mono text-white border border-border/50">0</kbd> to reset.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 3D Cesium WebGL Canvas */}
           <CesiumGlobe
             ref={globeRef}
             satellites={satellites}
             focusedId={focusedId}
             onSelect={(id) => {
-              setFocusedId(id);
-              if (!id) setFollowSatellite(false);
+              if (!id || id === focusedId) {
+                handleSelectSatellite(null);
+              } else {
+                handleSelectSatellite(id);
+              }
             }}
             showAllOrbits={showAllOrbits}
             showFootprint={showFootprint}
@@ -403,48 +725,59 @@ export function OrbitViewerPage() {
             simSpeed={simSpeed}
             imageryStyle={imageryStyle}
             authToken={authToken}
+            mouseMode={mouseMode}
             onTelemetryUpdate={setLiveTelemetry}
             onWsStatusChange={setIsWsConnected}
+            onCameraAltitudeChange={setCameraAltitudeKm}
           />
 
           {/* Floating Focused Satellite Telemetry HUD (Bottom-Right, Compact & Minimizable) */}
           {focusedSatellite && (
             isHudMinimized ? (
-              <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2.5 rounded-xl border border-cyan-500/40 bg-[#060B14]/90 px-3 py-2 shadow-2xl backdrop-blur-md text-foreground">
-                <span className="flex h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(0,242,254,0.9)] animate-pulse" />
+              <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2.5 rounded-xl border border-amber-400/50 bg-[#060B14]/92 px-3 py-2 shadow-[0_0_20px_rgba(255,230,0,0.2)] backdrop-blur-md text-foreground">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#FFE600] shadow-[0_0_8px_rgba(255,230,0,0.9)]" />
+                </span>
                 <span className="text-xs font-bold text-white">{focusedSatellite.name}</span>
-                <span className="font-mono text-[11px] text-cyan-300 font-semibold">
+                <span className="rounded bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-mono font-bold text-amber-300 border border-amber-400/30">
+                  TRACKING
+                </span>
+                <span className="font-mono text-[11px] text-amber-300 font-semibold">
                   {liveTelemetry?.altitudeKm ? `${Math.round(liveTelemetry.altitudeKm)} km` : `${focusedSatellite.altitudeKm ? Math.round(focusedSatellite.altitudeKm) : "--"} km`}
                 </span>
                 <button
                   onClick={() => setIsHudMinimized(false)}
-                  className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+                  className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-amber-300 transition-colors"
                   title="Expand Telemetry HUD"
                 >
                   <Maximize2 className="h-3.5 w-3.5" />
                 </button>
                 <button
-                  onClick={() => {
-                    setFocusedId(null);
-                    setFollowSatellite(false);
-                  }}
+                  onClick={() => handleSelectSatellite(null)}
                   className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                  title="Close HUD"
+                  title="Stop Tracking & Close HUD"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             ) : (
-              <div className="absolute bottom-3 right-3 z-20 w-80 rounded-xl border border-cyan-500/40 bg-[#060B14]/92 p-3.5 shadow-2xl backdrop-blur-md text-foreground">
+              <div className="absolute bottom-3 right-3 z-20 w-80 rounded-xl border border-amber-400/50 bg-[#060B14]/94 p-3.5 shadow-[0_0_25px_rgba(255,230,0,0.25)] backdrop-blur-md text-foreground">
                 <div className="flex items-start justify-between border-b border-border/60 pb-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="flex h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(0,242,254,0.9)]" />
+                      <span className="relative flex h-3 w-3">
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 animate-ping" />
+                        <span className="relative inline-flex h-3 w-3 rounded-full bg-[#FFE600] shadow-[0_0_10px_rgba(255,230,0,0.9)]" />
+                      </span>
                       <h3 className="text-sm font-bold tracking-tight text-white">
                         {focusedSatellite.name}
                       </h3>
+                      <span className="rounded bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-mono font-bold text-amber-300 border border-amber-400/40">
+                        TRACKING
+                      </span>
                     </div>
-                    <p className="text-[11px] font-mono text-muted-foreground">
+                    <p className="text-[11px] font-mono text-muted-foreground mt-0.5">
                       NORAD #{focusedSatellite.noradId} • {focusedSatellite.ownerOrg}
                     </p>
                   </div>
@@ -452,18 +785,15 @@ export function OrbitViewerPage() {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => setIsHudMinimized(true)}
-                      className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+                      className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-amber-300 transition-colors"
                       title="Minimize HUD"
                     >
                       <Minimize2 className="h-3.5 w-3.5" />
                     </button>
                     <button
-                      onClick={() => {
-                        setFocusedId(null);
-                        setFollowSatellite(false);
-                      }}
+                      onClick={() => handleSelectSatellite(null)}
                       className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                      title="Close HUD"
+                      title="Stop Tracking & Close HUD"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -555,58 +885,128 @@ export function OrbitViewerPage() {
             )
           )}
 
-          {/* Bottom Control Bar: Zoom Controls, Altitude Presets, Reset Camera & Sync Output */}
+          {/* Bottom Control Bar: Zoom Controls, Altitude HUD, Presets, Slider & Sync Output */}
           <div className="absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-2 pointer-events-auto">
-            {/* Dedicated Zoom In (+) & Zoom Out (-) Controls */}
+            {/* Dedicated Zoom In (+) & Zoom Out (-) Controls with Continuous Hold-to-Zoom */}
             <div className="flex items-center rounded-lg border border-border/70 bg-card/85 p-0.5 shadow-lg backdrop-blur-md">
               <button
+                onMouseDown={() => startContinuousZoom("in")}
+                onMouseUp={stopContinuousZoom}
+                onMouseLeave={stopContinuousZoom}
+                onTouchStart={() => startContinuousZoom("in")}
+                onTouchEnd={stopContinuousZoom}
                 onClick={() => globeRef.current?.zoomIn()}
-                title="Zoom In Closer (+)"
-                className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+                title="Zoom In Closer (Click or Hold / Shortcut: +)"
+                className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors active:scale-95"
               >
                 <ZoomIn className="h-4 w-4" />
               </button>
               <div className="h-4 w-[1px] bg-border/60 mx-0.5" />
               <button
+                onMouseDown={() => startContinuousZoom("out")}
+                onMouseUp={stopContinuousZoom}
+                onMouseLeave={stopContinuousZoom}
+                onTouchStart={() => startContinuousZoom("out")}
+                onTouchEnd={stopContinuousZoom}
                 onClick={() => globeRef.current?.zoomOut()}
-                title="Zoom Out Farther (-)"
-                className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+                title="Zoom Out Farther (Click or Hold / Shortcut: -)"
+                className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors active:scale-95"
               >
                 <ZoomOut className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Orbit Altitude Presets (LEO / GEO / Reset) */}
+            {/* Live Camera Altitude HUD & Orbital Shell Badge */}
+            <div className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur-md">
+              <Gauge className="h-3.5 w-3.5 text-cyan-400" />
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[10px] font-mono uppercase text-muted-foreground">ALT:</span>
+                <span className="font-mono text-xs font-bold text-white">
+                  {cameraAltitudeKm.toLocaleString()} <span className="text-[10px] font-normal text-muted-foreground">km</span>
+                </span>
+                <span
+                  title={shellInfo.label}
+                  className={cn("rounded border px-1.5 py-0.5 text-[9px] font-mono font-semibold", shellInfo.color)}
+                >
+                  {shellInfo.shell}
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Horizontal Altitude Slider */}
+            <div className="hidden md:flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur-md">
+              <Sliders className="h-3 w-3 text-cyan-400" />
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={currentSliderVal}
+                onChange={handleSliderChange}
+                aria-label="Altitude Zoom Level"
+                title={`Drag to zoom: ${cameraAltitudeKm.toLocaleString()} km`}
+                className="w-20 accent-cyan-400 cursor-pointer h-1.5 bg-secondary/80 rounded"
+              />
+            </div>
+
+            {/* Orbit Altitude Presets (Full Earth / LEO / MEO / GEO / Deep / Reset) */}
             <div className="flex items-center rounded-lg border border-border/70 bg-card/85 p-0.5 shadow-lg backdrop-blur-md">
               <button
                 onClick={() => {
-                  setFocusedId(null);
-                  setFollowSatellite(false);
+                  handleSelectSatellite(null);
+                  globeRef.current?.viewFullEarth();
+                }}
+                title="Full Earth Space View (~24,500 km - Whole Earth Centered / Shortcut: F or 0)"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 hover:bg-cyan-500/25 transition-colors shadow-sm"
+              >
+                <Globe2 className="h-3 w-3" />
+                <span>Full Earth</span>
+              </button>
+              <button
+                onClick={() => {
+                  handleSelectSatellite(null);
                   globeRef.current?.viewLeo();
                 }}
-                title="Low Earth Orbit Zoom View (8,500 km)"
-                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+                title="Low Earth Orbit Zoom View (2,400 km)"
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-emerald-300 transition-colors"
               >
-                LEO View
+                LEO
               </button>
               <button
                 onClick={() => {
-                  setFocusedId(null);
-                  setFollowSatellite(false);
+                  handleSelectSatellite(null);
+                  globeRef.current?.viewMeo();
+                }}
+                title="Medium Earth Orbit Navigation View (20,000 km)"
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+              >
+                MEO
+              </button>
+              <button
+                onClick={() => {
+                  handleSelectSatellite(null);
                   globeRef.current?.viewGeo();
                 }}
-                title="Geostationary Space Zoom View (42,000 km)"
-                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-cyan-300 transition-colors"
+                title="Geostationary Space Zoom View (48,000 km)"
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-amber-300 transition-colors"
               >
-                GEO View
+                GEO
               </button>
               <button
                 onClick={() => {
-                  setFocusedId(null);
-                  setFollowSatellite(false);
+                  handleSelectSatellite(null);
+                  globeRef.current?.viewDeepSpace();
+                }}
+                title="Deep Space Outer Orbit View (95,000 km)"
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-purple-300 transition-colors"
+              >
+                Deep
+              </button>
+              <button
+                onClick={() => {
+                  handleSelectSatellite(null);
                   globeRef.current?.resetCamera();
                 }}
-                title="Reset Camera (Global Space View)"
+                title="Reset Camera (Global Space View / Shortcut: 0)"
                 className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
               >
                 <RotateCcw className="h-3.5 w-3.5" />

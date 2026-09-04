@@ -30,21 +30,15 @@ export function computeGMST(date: Date): number {
 }
 
 /**
- * High-accuracy circular/elliptical sub-satellite point calculator with IAU GMST.
- * Computes instantaneous latitude, longitude ([-180, 180]), and altitude in meters.
- * If lastTleEpoch is provided, propagates delta from epoch to prevent floating-point drift.
+ * Computes current orbital argument of latitude `u` in degrees [0, 360).
+ * Progresses prograde (forward in the direction of orbital velocity).
  */
-export function computeSubSatellitePoint(
-  satellite: Satellite,
-  date: Date
-): { latitudeDeg: number; longitudeDeg: number; heightMeters: number } | null {
+export function computeCurrentU(satellite: Satellite, date: Date): number {
   const altitude = satellite.altitudeKm ?? 550;
   const period =
     satellite.periodMinutes && satellite.periodMinutes > 0
       ? satellite.periodMinutes
       : (2 * Math.PI * Math.sqrt(Math.pow(EARTH_RADIUS_KM + altitude, 3) / MU_EARTH)) / 60;
-  const inclination = satellite.inclinationDeg ?? 51.6;
-  const raan = satellite.raanDeg ?? ((satellite.noradId * 137.508) % 360);
   const meanAnomaly = satellite.meanAnomalyDeg ?? ((satellite.noradId * 43.123) % 360);
 
   // Delta time from TLE epoch or reference timestamp
@@ -57,13 +51,31 @@ export function computeSubSatellitePoint(
       minutesElapsed = (date.getTime() % (period * 60_000)) / 60_000;
     }
   } else {
-    // Wrap to one orbit period to preserve numerical precision
     minutesElapsed = (date.getTime() % (period * 60_000)) / 60_000;
   }
 
-  // Mean anomaly progression (argument of latitude for near-circular orbit)
   const u = (meanAnomaly + (360 / period) * minutesElapsed) % 360;
-  const uRad = u * DEG;
+  return u < 0 ? u + 360 : u;
+}
+
+/**
+ * Computes 3D spherical ECEF coordinates (lat, lon, height) at a specific orbital angle `uDeg`
+ * and instantaneous Earth Greenwich Mean Sidereal Time `gmstDeg`.
+ * 
+ * Mathematical Guarantee:
+ * Evaluated at the same instantaneous `gmstDeg`, points along the orbit ring and the
+ * satellite position at `u = currentU` lie on the EXACT same spatial circle in 3D Cesium coordinates.
+ */
+export function computeOrbitPointAtU(
+  satellite: Satellite,
+  uDeg: number,
+  gmstDeg: number
+): { latitudeDeg: number; longitudeDeg: number; heightMeters: number } {
+  const altitude = satellite.altitudeKm ?? 550;
+  const inclination = satellite.inclinationDeg ?? 51.6;
+  const raan = satellite.raanDeg ?? ((satellite.noradId * 137.508) % 360);
+
+  const uRad = uDeg * DEG;
   const iRad = inclination * DEG;
   const raanRad = raan * DEG;
 
@@ -80,9 +92,6 @@ export function computeSubSatellitePoint(
   const latitudeDeg = Math.asin(Math.max(-1, Math.min(1, zEci))) * RAD;
   const lonEciDeg = Math.atan2(yEci, xEci) * RAD;
 
-  // Accurate Greenwich Mean Sidereal Time rotation
-  const gmstDeg = computeGMST(date);
-
   let longitudeDeg = (lonEciDeg - gmstDeg) % 360;
   if (longitudeDeg > 180) longitudeDeg -= 360;
   if (longitudeDeg < -180) longitudeDeg += 360;
@@ -94,7 +103,22 @@ export function computeSubSatellitePoint(
   };
 }
 
-/** Samples one full orbit's ground track for drawing a predicted path line. Returns empty array if no orbital data. */
+/**
+ * High-accuracy circular/elliptical sub-satellite point calculator with IAU GMST.
+ * Computes instantaneous latitude, longitude ([-180, 180]), and altitude in meters.
+ */
+export function computeSubSatellitePoint(
+  satellite: Satellite,
+  date: Date,
+  cachedGmst?: number
+): { latitudeDeg: number; longitudeDeg: number; heightMeters: number } | null {
+  if (!hasOrbitalData(satellite)) return null;
+  const gmstDeg = cachedGmst !== undefined ? cachedGmst : computeGMST(date);
+  const u = computeCurrentU(satellite, date);
+  return computeOrbitPointAtU(satellite, u, gmstDeg);
+}
+
+/** Samples one full orbit's ground track for drawing a predicted path line on the surface. */
 export function sampleGroundTrack(
   satellite: Satellite,
   fromDate: Date,
@@ -105,7 +129,8 @@ export function sampleGroundTrack(
   }
 
   const points: Array<{ latitudeDeg: number; longitudeDeg: number; heightMeters: number }> = [];
-  const periodMs = satellite.periodMinutes! * 60_000;
+  const period = satellite.periodMinutes && satellite.periodMinutes > 0 ? satellite.periodMinutes : 95;
+  const periodMs = period * 60_000;
   for (let i = 0; i <= samples; i++) {
     const t = new Date(fromDate.getTime() + (periodMs * i) / samples);
     const pt = computeSubSatellitePoint(satellite, t);
@@ -142,16 +167,11 @@ export function calculateFootprintRadiusMeters(satellite: Satellite): number {
   return EARTH_RADIUS_KM * theta * 1000;
 }
 
-// In-memory geometry cache for 3D full orbit polylines to prevent redundant CPU recalculation
-const orbitGeometryCache = new Map<
-  string,
-  Array<{ longitudeDeg: number; latitudeDeg: number; heightMeters: number }>
->();
-
 /**
  * Samples a continuous 3D orbital trajectory ring in Earth coordinates.
  * Generates an array of [longitude, latitude, altitudeMeters] for Cesium polylines.
- * Uses LRU/Map memoization keyed by satellite ID and orbital elements.
+ * Evaluated at the instantaneous GMST of referenceDate so the 3D ring is a
+ * true planar spatial circle in Cesium that the satellite strictly rides along.
  */
 export function sampleFullOrbit3D(
   satellite: Satellite,
@@ -162,37 +182,73 @@ export function sampleFullOrbit3D(
     return [];
   }
 
-  // Cache key based on orbit state properties that dictate orbit shape
-  const cacheKey = `${satellite.id}_${satellite.altitudeKm}_${satellite.inclinationDeg}_${satellite.raanDeg}_${samples}`;
-  const cached = orbitGeometryCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const periodMinutes = satellite.periodMinutes!;
-  const periodMs = periodMinutes * 60_000;
+  const gmstDeg = computeGMST(referenceDate);
   const points: Array<{ longitudeDeg: number; latitudeDeg: number; heightMeters: number }> = [];
 
   for (let i = 0; i <= samples; i++) {
-    const fraction = i / samples;
-    const t = new Date(referenceDate.getTime() + fraction * periodMs);
-    const pos = computeSubSatellitePoint(satellite, t);
-    if (pos) {
-      points.push(pos);
-    }
+    const u = (360 * i) / samples;
+    points.push(computeOrbitPointAtU(satellite, u, gmstDeg));
   }
 
-  // Keep cache bounded
-  if (orbitGeometryCache.size > 800) {
-    const firstKey = orbitGeometryCache.keys().next().value;
-    if (firstKey) orbitGeometryCache.delete(firstKey);
-  }
-  orbitGeometryCache.set(cacheKey, points);
+  return points;
+}
 
+/**
+ * Samples past 3D trajectory trail up to referenceDate (showing where the satellite just was).
+ * Trails directly behind the satellite along the exact orbital flight path.
+ */
+export function samplePastTrail3D(
+  satellite: Satellite,
+  referenceDate: Date,
+  minutesBack = 45,
+  samples = 40
+): Array<{ longitudeDeg: number; latitudeDeg: number; heightMeters: number }> {
+  if (!hasOrbitalData(satellite)) return [];
+  const period =
+    satellite.periodMinutes && satellite.periodMinutes > 0 ? satellite.periodMinutes : 95;
+  const currentU = computeCurrentU(satellite, referenceDate);
+  const gmstDeg = computeGMST(referenceDate);
+  const deltaUDeg = (360 / period) * Math.min(minutesBack, period * 0.95);
+  const points: Array<{ longitudeDeg: number; latitudeDeg: number; heightMeters: number }> = [];
+
+  for (let i = 0; i <= samples; i++) {
+    const frac = i / samples;
+    // At frac = 0, u = currentU - deltaUDeg (behind). At frac = 1, u = currentU (satellite position).
+    let u = (currentU - deltaUDeg * (1 - frac)) % 360;
+    if (u < 0) u += 360;
+    points.push(computeOrbitPointAtU(satellite, u, gmstDeg));
+  }
+  return points;
+}
+
+/**
+ * Samples forward 3D trajectory starting from referenceDate (showing where the satellite will go).
+ * Extends forward from the satellite's exact position along the direction of velocity.
+ */
+export function sampleForwardTrajectory3D(
+  satellite: Satellite,
+  referenceDate: Date,
+  minutesForward = 95,
+  samples = 70
+): Array<{ longitudeDeg: number; latitudeDeg: number; heightMeters: number }> {
+  if (!hasOrbitalData(satellite)) return [];
+  const period =
+    satellite.periodMinutes && satellite.periodMinutes > 0 ? satellite.periodMinutes : 95;
+  const currentU = computeCurrentU(satellite, referenceDate);
+  const gmstDeg = computeGMST(referenceDate);
+  const deltaUDeg = (360 / period) * Math.min(minutesForward, period);
+  const points: Array<{ longitudeDeg: number; latitudeDeg: number; heightMeters: number }> = [];
+
+  for (let i = 0; i <= samples; i++) {
+    const frac = i / samples;
+    // At frac = 0, u = currentU (exact satellite position). At frac = 1, forward along flight path.
+    const u = (currentU + deltaUDeg * frac) % 360;
+    points.push(computeOrbitPointAtU(satellite, u, gmstDeg));
+  }
   return points;
 }
 
 /** Clears cached orbit geometries */
 export function clearOrbitGeometryCache(): void {
-  orbitGeometryCache.clear();
+  // Backwards compatibility
 }

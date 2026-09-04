@@ -61,7 +61,7 @@ export function SatelliteTrackList({
           {focusedId && (
             <button
               onClick={() => onFocus("")}
-              className="text-[10px] text-primary hover:underline font-mono"
+              className="text-[10px] text-amber-400 hover:text-amber-300 hover:underline font-mono"
             >
               Reset Focus
             </button>
@@ -143,26 +143,38 @@ export function SatelliteTrackList({
                 className={cn(
                   "group relative flex w-full flex-col rounded-md border p-2.5 text-left transition-all",
                   isFocused
-                    ? "border-cyan-500/60 bg-cyan-500/10 shadow-[0_0_12px_rgba(0,242,254,0.15)]"
+                    ? "border-amber-400/80 bg-amber-500/15 shadow-[0_0_15px_rgba(255,230,0,0.2)]"
                     : "border-border/40 bg-card/40 hover:border-border hover:bg-secondary/40"
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span
+                    {isFocused ? (
+                      <span className="relative flex h-2.5 w-2.5 shrink-0">
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 animate-ping" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#FFE600] shadow-[0_0_8px_rgba(255,230,0,0.9)]" />
+                      </span>
+                    ) : (
+                      <span
+                        className={cn(
+                          "h-2 w-2 shrink-0 rounded-full transition-transform group-hover:scale-125",
+                          STATUS_DOT[sat.status]
+                        )}
+                      />
+                    )}
+                    <p
                       className={cn(
-                        "h-2 w-2 shrink-0 rounded-full transition-transform group-hover:scale-125",
-                        STATUS_DOT[sat.status]
+                        "truncate text-xs font-semibold leading-tight",
+                        isFocused ? "text-amber-200" : "text-foreground"
                       )}
-                    />
-                    <p className="truncate text-xs font-semibold text-foreground leading-tight">
+                    >
                       {sat.name}
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5">
                     {isFocused && (
-                      <span className="flex items-center gap-0.5 rounded bg-cyan-400/20 px-1 py-0.2 text-[9px] font-mono text-cyan-300">
-                        <Eye className="h-2.5 w-2.5" />
+                      <span className="flex items-center gap-1 rounded bg-amber-400/20 px-1.5 py-0.5 text-[9px] font-mono font-bold text-amber-300 border border-amber-400/40 animate-pulse">
+                        <Eye className="h-2.5 w-2.5 text-amber-300" />
                         TRACKING
                       </span>
                     )}
