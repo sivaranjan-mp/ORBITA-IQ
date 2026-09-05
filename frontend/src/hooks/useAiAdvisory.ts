@@ -56,7 +56,7 @@ function buildLocalFallbackAdvisory(alert: ConjunctionAlert): AIManeuverAdvisory
       confidence_assessment: "High qualitative confidence based on encounter crossing geometry.",
       disclaimer: DEFAULT_DISCLAIMER,
     },
-    modelUsed: "claude-3-5-haiku-20241022 (advisory)",
+    modelUsed: "claude-sonnet-5 (simulated)",
     isCached: false,
     createdAt: now,
     updatedAt: now,

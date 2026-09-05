@@ -137,6 +137,7 @@ export function AlertsTable() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
+              <TableHead className="w-14 text-center">S.No</TableHead>
               <TableHead>Satellite A</TableHead>
               <TableHead>Satellite B</TableHead>
               <TableHead>Scope</TableHead>
@@ -150,7 +151,7 @@ export function AlertsTable() {
             {isLoading &&
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={8}>
                     <Skeleton className="h-7 w-full" />
                   </TableCell>
                 </TableRow>
@@ -158,7 +159,7 @@ export function AlertsTable() {
 
             {!isLoading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
                   <div className="mx-auto flex max-w-sm flex-col items-center justify-center space-y-2">
                     <ShieldAlert className="h-8 w-8 text-muted-foreground/60" />
                     <p className="text-sm font-medium text-foreground">No conjunctions detected</p>
@@ -171,7 +172,7 @@ export function AlertsTable() {
             )}
 
             {!isLoading &&
-              filtered.map((alert) => {
+              filtered.map((alert, index) => {
                 const isFleetVsFleet = alert.screeningScope === "fleet_vs_fleet";
                 const missKm = alert.missDistanceKm ?? (alert.missDistanceM / 1000.0);
                 const horizonBadge = formatTcaHorizon(alert.tca);
@@ -182,6 +183,9 @@ export function AlertsTable() {
                     className="cursor-pointer transition-colors hover:bg-muted/50"
                     onClick={() => setSelected(alert)}
                   >
+                    <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                      {index + 1}
+                    </TableCell>
                     <TableCell>
                       <p className="font-medium text-foreground">{alert.primarySatellite}</p>
                       <p className="font-mono text-xs text-muted-foreground">NORAD #{alert.primaryNoradId}</p>

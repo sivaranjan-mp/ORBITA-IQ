@@ -281,6 +281,7 @@ export function CatalogTable() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-14 text-center">S.No</TableHead>
               <TableHead>Space Object</TableHead>
               <TableHead>NORAD ID</TableHead>
               <TableHead>Type</TableHead>
@@ -296,7 +297,7 @@ export function CatalogTable() {
             {isLoading &&
               Array.from({ length: 8 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={9}>
+                  <TableCell colSpan={10}>
                     <Skeleton className="h-7 w-full" />
                   </TableCell>
                 </TableRow>
@@ -304,7 +305,7 @@ export function CatalogTable() {
 
             {!isLoading && items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
                   <Globe2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
                   <p className="font-medium text-foreground">No catalog objects found</p>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -315,7 +316,8 @@ export function CatalogTable() {
             )}
 
             {!isLoading &&
-              items.map((sat) => {
+              items.map((sat, index) => {
+                const serialNumber = (page - 1) * limit + index + 1;
                 const isCurrentlyTracking = trackingId === sat.noradId;
                 const collision = collisionMap.get(sat.noradId);
                 const opponentName = collision
@@ -332,6 +334,11 @@ export function CatalogTable() {
                       collision && "bg-amber-500/5 hover:bg-amber-500/10 border-l-2 border-l-amber-500"
                     )}
                   >
+                    {/* Serial Number */}
+                    <TableCell className="text-center font-mono text-xs text-muted-foreground">
+                      {serialNumber}
+                    </TableCell>
+
                     {/* Object Name & COSPAR / Collision Alert */}
                     <TableCell>
                       <div className="flex flex-col gap-0.5">

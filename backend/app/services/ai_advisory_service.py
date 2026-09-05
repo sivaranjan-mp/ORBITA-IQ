@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
+import anthropic
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -449,62 +450,102 @@ class AIAdvisoryService:
 
         return None
 
-    async def _call_anthropic_api(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def _call_claude_api(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Fallback for Anthropic Messages API if ANTHROPIC_API_KEY is explicitly configured.
+        Calls Anthropic Claude Messages API using the official anthropic Python SDK
+        with structured JSON output extraction and comprehensive error handling.
         """
-        api_key = self.settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+        api_key = (
+            getattr(self.settings, "anthropic_api_key", None)
+            or os.environ.get("ANTHROPIC_API_KEY")
+        )
         if not api_key:
+            logger.info("ANTHROPIC_API_KEY is not configured; skipping live Claude API call.")
             return None
 
-        model_name = self.settings.ai_model_name or "claude-3-5-haiku-20241022"
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        }
-
-        user_content = (
-            f"Analyze this conjunction event and return the qualitative collision avoidance advisory JSON:\n\n"
-            f"{json.dumps(context, indent=2)}"
+        model_name = (
+            os.environ.get("CLAUDE_ADVISORY_MODEL")
+            or os.environ.get("CLAUDE_MODEL")
+            or getattr(self.settings, "claude_advisory_model", None)
+            or "claude-sonnet-5"
         )
 
-        payload = {
-            "model": model_name,
-            "max_tokens": 1200,
-            "system": SYSTEM_PROMPT,
-            "messages": [{"role": "user", "content": user_content}],
-            "temperature": 0.2,
-        }
+        user_content = (
+            "Analyze this orbital conjunction encounter telemetry and provide a qualitative collision avoidance advisory.\n\n"
+            f"Conjunction Telemetry Context:\n{json.dumps(context, indent=2)}\n\n"
+            "Generate the advisory JSON adhering strictly to the required schema."
+        )
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers=headers,
-                json=payload,
+        raw_text = ""
+        try:
+            client = anthropic.AsyncAnthropic(api_key=api_key, timeout=35.0)
+            message = await client.messages.create(
+                model=model_name,
+                max_tokens=1500,
+                temperature=0.2,
+                system=SYSTEM_PROMPT,
+                messages=[
+                    {"role": "user", "content": user_content}
+                ],
             )
-            response.raise_for_status()
-            res_json = response.json()
 
-            content_blocks = res_json.get("content", [])
-            if not content_blocks:
+            for block in message.content:
+                if hasattr(block, "text"):
+                    raw_text += block.text
+
+            if not raw_text.strip():
+                logger.warning("Claude API returned empty content blocks.")
                 return None
 
-            raw_text = content_blocks[0].get("text", "").strip()
-            if raw_text.startswith("```json"):
-                raw_text = raw_text[7:]
-            if raw_text.startswith("```"):
-                raw_text = raw_text[3:]
-            if raw_text.endswith("```"):
-                raw_text = raw_text[:-3]
+            cleaned = raw_text.strip()
+            if "```json" in cleaned:
+                cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0]
+            elif "```" in cleaned:
+                cleaned = cleaned.split("```", 1)[1].split("```", 1)[0]
+            cleaned = cleaned.strip()
 
-            parsed = json.loads(raw_text.strip())
-            usage = res_json.get("usage", {})
+            start_idx = cleaned.find("{")
+            end_idx = cleaned.rfind("}")
+            if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
+                cleaned = cleaned[start_idx : end_idx + 1]
+
+            parsed = json.loads(cleaned)
+
+            if not isinstance(parsed, dict):
+                logger.warning("Claude API did not return a JSON dictionary.")
+                return None
+
+            prompt_tokens = message.usage.input_tokens if message.usage else 0
+            completion_tokens = message.usage.output_tokens if message.usage else 0
+
             parsed["_usage"] = {
-                "prompt_tokens": usage.get("input_tokens", 0),
-                "completion_tokens": usage.get("output_tokens", 0),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
             }
+            parsed["_model_used"] = model_name
             return parsed
+
+        except anthropic.AuthenticationError as auth_err:
+            logger.warning(f"Claude API Authentication failed (invalid or expired ANTHROPIC_API_KEY): {auth_err}")
+            return None
+        except anthropic.RateLimitError as rate_err:
+            logger.warning(f"Claude API Rate Limit reached (429): {rate_err}")
+            return None
+        except anthropic.APITimeoutError as timeout_err:
+            logger.warning(f"Claude API request timed out: {timeout_err}")
+            return None
+        except anthropic.APIStatusError as status_err:
+            logger.warning(f"Claude API status error ({status_err.status_code}): {status_err.message}")
+            return None
+        except anthropic.APIError as api_err:
+            logger.warning(f"Claude API error: {api_err}")
+            return None
+        except json.JSONDecodeError as json_err:
+            logger.warning(f"Failed to parse Claude JSON response: {json_err} -- Raw text: {raw_text[:200]}")
+            return None
+        except Exception as exc:
+            logger.error(f"Unexpected error calling Claude API: {exc}")
+            return None
 
     async def generate_or_get_advisory(
         self,
@@ -513,7 +554,8 @@ class AIAdvisoryService:
     ) -> AIManeuverAdvisoryResponse:
         """
         Generates or retrieves a cached qualitative advisory for a conjunction alert.
-        Primary provider: Google Gemini API (gemini-2.5-flash) with rate limit retry & heuristic simulation fallback.
+        Primary provider: Anthropic Claude API (claude-sonnet-5 / CLAUDE_ADVISORY_MODEL)
+        with deterministic heuristic simulation fallback and DB caching.
         """
         alert = await self.get_alert_by_id(alert_id)
         if not alert:
@@ -527,32 +569,43 @@ class AIAdvisoryService:
         # Assemble orbital context
         context = await self.get_orbital_context(alert)
 
-        # Determine target model name
-        model_name = self.settings.ai_model_name or "gemini-2.5-flash"
+        default_model = (
+            os.environ.get("CLAUDE_ADVISORY_MODEL")
+            or os.environ.get("CLAUDE_MODEL")
+            or getattr(self.settings, "claude_advisory_model", None)
+            or "claude-sonnet-5"
+        )
+        model_name = default_model
         prompt_tokens = 0
         completion_tokens = 0
 
-        # Attempt 1: Call Gemini API
-        llm_result = await self._call_gemini_api(context)
+        # Attempt 1: Call Anthropic Claude API (Primary)
+        llm_result = await self._call_claude_api(context)
 
-        # Attempt 2: Optional fallback to Anthropic if Gemini key is absent but Anthropic key is set
-        if not llm_result and (self.settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")):
+        # Attempt 2: Optional fallback to Gemini if Claude key is absent/failed but Gemini is configured
+        if not llm_result and (
+            getattr(self.settings, "gemini_api_key", None)
+            or getattr(self.settings, "google_api_key", None)
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+        ):
             try:
-                llm_result = await self._call_anthropic_api(context)
+                llm_result = await self._call_gemini_api(context)
                 if llm_result:
-                    model_name = "claude-3-5-haiku-20241022"
+                    model_name = getattr(self.settings, "ai_model_name", None) or "gemini-2.5-flash"
             except Exception as exc:
-                logger.warning(f"Anthropic fallback also failed: {exc}")
+                logger.warning(f"Gemini secondary fallback also failed: {exc}")
 
         if llm_result:
             usage = llm_result.pop("_usage", {})
+            model_name = llm_result.pop("_model_used", model_name)
             prompt_tokens = usage.get("prompt_tokens", 0)
             completion_tokens = usage.get("completion_tokens", 0)
             recommendation_data = llm_result
         else:
             # Fallback to deterministic astrodynamics simulation
-            logger.info("Live AI API key not configured or rate-limited; generating deterministic advisory.")
-            model_name = f"{model_name} (simulated)"
+            logger.info("Live AI API key not configured or API call failed; generating deterministic advisory.")
+            model_name = f"{default_model} (simulated)"
             recommendation_data = self._generate_deterministic_advisory(context)
 
         # Ensure disclaimer is populated
@@ -590,6 +643,7 @@ class AIAdvisoryService:
             saved_advisory = new_advisory
 
         return self._format_advisory_response(saved_advisory, alert, is_cached=False)
+
 
     async def get_all_advisories(self) -> List[AIManeuverAdvisoryResponse]:
         """

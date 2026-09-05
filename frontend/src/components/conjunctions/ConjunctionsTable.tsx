@@ -33,6 +33,7 @@ export function ConjunctionsTable() {
           <table className="w-full text-sm text-left">
             <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
               <tr>
+                <th className="px-4 py-4 font-medium text-center w-14">S.No</th>
                 <th className="px-6 py-4 font-medium">Primary Object</th>
                 <th className="px-6 py-4 font-medium">Secondary Object</th>
                 <th className="px-6 py-4 font-medium text-right">Date of Collision (UTC)</th>
@@ -45,21 +46,24 @@ export function ConjunctionsTable() {
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
                     <Activity className="h-6 w-6 animate-spin mx-auto mb-2 text-indigo-500" />
                     Loading conjunctions...
                   </td>
                 </tr>
               ) : conjunctions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
                     <Navigation className="h-6 w-6 mx-auto mb-2 opacity-50" />
                     No conjunction events detected in the lookahead window.
                   </td>
                 </tr>
               ) : (
-                conjunctions.map((event) => (
+                conjunctions.map((event, index) => (
                   <tr key={event.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
+                    <td className="px-4 py-4 text-center font-mono text-xs text-slate-500">
+                      {index + 1}
+                    </td>
                     <td className="px-6 py-4">
                       <div className="font-semibold text-slate-900 dark:text-white">
                         {event.primarySatelliteName}

@@ -29,7 +29,7 @@ class AIManeuverAdvisory(Base):
     )
     satellite_norad_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     recommendation_data: Mapped[dict] = mapped_column(JSON, nullable=False)
-    model_used: Mapped[str] = mapped_column(String, nullable=False, default="claude-3-5-haiku-20241022")
+    model_used: Mapped[str] = mapped_column(String, nullable=False, default="claude-sonnet-5")
     prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 

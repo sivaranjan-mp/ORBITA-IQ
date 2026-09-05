@@ -68,9 +68,10 @@ class Settings(BaseSettings):
     rate_limit_password_reset: str = "5/minute"
 
     # ---- AI Assistant / LLM ----
+    anthropic_api_key: Union[str, None] = None
+    claude_advisory_model: str = "claude-sonnet-5"
     gemini_api_key: Union[str, None] = None
     google_api_key: Union[str, None] = None
-    anthropic_api_key: Union[str, None] = None
     ai_model_name: str = "gemini-2.5-flash"
 
 

@@ -235,6 +235,7 @@ export function SatelliteTable({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-14 text-center">S.No</TableHead>
               <TableHead>Satellite</TableHead>
               <TableHead>NORAD ID</TableHead>
               {showOwner && <TableHead>Owner</TableHead>}
@@ -249,7 +250,7 @@ export function SatelliteTable({
             {isLoading &&
               Array.from({ length: 6 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={showOwner ? 8 : 7}>
+                  <TableCell colSpan={showOwner ? 9 : 8}>
                     <Skeleton className="h-6 w-full" />
                   </TableCell>
                 </TableRow>
@@ -257,14 +258,14 @@ export function SatelliteTable({
 
             {!isLoading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={showOwner ? 8 : 7} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={showOwner ? 9 : 8} className="py-10 text-center text-muted-foreground">
                   No satellites match "{query}".
                 </TableCell>
               </TableRow>
             )}
 
             {!isLoading &&
-              filtered.map((sat) => {
+              filtered.map((sat, index) => {
                 const currentEmployeeId = (
                   profile?.employee_id ||
                   (session?.user?.user_metadata?.employee_id as string | undefined)
@@ -313,6 +314,9 @@ export function SatelliteTable({
                       collision && !isOwner && "bg-amber-500/5 hover:bg-amber-500/10 border-l-2 border-l-amber-500"
                     )}
                   >
+                    <TableCell className={cn("text-center font-mono text-xs", isOwner ? "text-amber-200/80 font-medium" : "text-muted-foreground")}>
+                      {index + 1}
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-1.5">
