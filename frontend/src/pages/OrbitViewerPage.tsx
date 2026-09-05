@@ -35,6 +35,7 @@ import {
   type ImageryStyle,
 } from "@/components/orbit/CesiumGlobe";
 import { SatelliteTrackList } from "@/components/orbit/SatelliteTrackList";
+import { AlertHistorySection } from "@/components/orbit/AlertHistorySection";
 import { useSatellites } from "@/hooks/useSatellites";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -232,7 +233,7 @@ export function OrbitViewerPage() {
   const authToken = session?.access_token || null;
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div className="flex min-h-full flex-col gap-5 pb-8">
       {/* Header & Status Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -309,7 +310,7 @@ export function OrbitViewerPage() {
       </div>
 
       {/* Main Grid: Track List + 3D Cesium Viewport (Full Horizontal Widescreen Support) */}
-      <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
+      <div className="flex h-[660px] min-h-[520px] w-full gap-3 overflow-hidden shrink-0">
         {/* Left Side: Fleet List with Filters & Search (Collapsible) */}
         {isSidebarOpen && (
           <div className="w-80 shrink-0 h-full transition-all duration-300">
@@ -1135,6 +1136,9 @@ export function OrbitViewerPage() {
           </div>
         </div>
       </div>
+
+      {/* Conjunction Alert Actions History Section */}
+      <AlertHistorySection />
     </div>
   );
 }

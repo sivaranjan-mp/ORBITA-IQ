@@ -20,3 +20,29 @@ export interface ConjunctionAlert {
   createdAt: string;
   computedAt?: string;
 }
+
+export interface AlertStatusHistoryItem {
+  id: string;
+  alertId: string;
+  primarySatellite: string;
+  primaryNoradId: number;
+  secondaryObject: string;
+  secondaryNoradId: number;
+  riskLevel: RiskLevel;
+  previousStatus: AlertStatus;
+  newStatus: AlertStatus;
+  actionTaken: string;
+  changedBy?: string | null;
+  operatorName?: string | null;
+  changedAt: string;
+  notes?: string | null;
+}
+
+export interface AlertStatusHistoryListResponse {
+  items: AlertStatusHistoryItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+

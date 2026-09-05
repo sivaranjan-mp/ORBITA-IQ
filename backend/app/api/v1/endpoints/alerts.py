@@ -1,6 +1,7 @@
 import logging
+import time
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, select
@@ -8,12 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.constants import DEFAULT_LOOKAHEAD_HOURS
+from app.core.supabase_client import get_admin_client
 from app.db.session import get_db
 from app.dependencies import get_current_user
-from app.models.alerts import Alert, ConjunctionAlert
+from app.models.alerts import Alert, AlertStatusHistory, ConjunctionAlert
 from app.models.enums import SatelliteStatus
 from app.models.satellites import Satellite, TLERecord
 from app.schemas.alerts import (
+    AlertStatusHistoryListResponse,
+    AlertStatusHistoryResponse,
     AlertStatusUpdate,
     ConjunctionAlertResponse,
     ScreeningRunResponse,
@@ -25,6 +29,71 @@ from app.services.satguard_service import SatguardService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
+
+_PROFILES_LOOKUP_CACHE: dict[str, dict] = {}
+_PROFILES_LOOKUP_TIMESTAMP: float = 0.0
+_PROFILES_LOOKUP_TTL: float = 60.0  # seconds
+
+
+def _get_profiles_lookup() -> dict[str, dict]:
+    global _PROFILES_LOOKUP_CACHE, _PROFILES_LOOKUP_TIMESTAMP
+    now = time.time()
+    if _PROFILES_LOOKUP_CACHE and (now - _PROFILES_LOOKUP_TIMESTAMP) < _PROFILES_LOOKUP_TTL:
+        return _PROFILES_LOOKUP_CACHE
+
+    try:
+        admin = get_admin_client()
+        result = admin.table("profiles").select("id, employee_id, full_name, role").execute()
+        if result and result.data:
+            lookup = {}
+            for p in result.data:
+                if p.get("id"):
+                    lookup[str(p["id"])] = p
+                if p.get("employee_id"):
+                    lookup[str(p["employee_id"]).strip().upper()] = p
+            _PROFILES_LOOKUP_CACHE = lookup
+            _PROFILES_LOOKUP_TIMESTAMP = now
+            return _PROFILES_LOOKUP_CACHE
+    except Exception as exc:
+        logger.warning(f"Could not load operator profiles from Supabase: {exc}")
+    return _PROFILES_LOOKUP_CACHE or {}
+
+
+def _format_history_item(
+    h: AlertStatusHistory,
+    profiles_lookup: dict,
+    current_user: Optional[UserProfile] = None
+) -> AlertStatusHistoryResponse:
+    alert = h.alert
+    changed_by_str = str(h.changed_by) if h.changed_by else None
+    operator_name = "Automated System"
+
+    if changed_by_str and changed_by_str in profiles_lookup:
+        profile = profiles_lookup[changed_by_str]
+        operator_name = profile.get("full_name") or profile.get("employee_id") or "Operator"
+    elif current_user and changed_by_str == current_user.id:
+        operator_name = current_user.full_name or current_user.employee_id
+    elif changed_by_str:
+        operator_name = f"Operator ({changed_by_str[:8]})"
+
+    action_label = h.new_status.capitalize() if h.new_status else "Updated"
+
+    return AlertStatusHistoryResponse(
+        id=str(h.id),
+        alertId=str(h.alert_id),
+        primarySatellite=alert.satellite_a_name if alert else "Unknown",
+        primaryNoradId=alert.satellite_a_norad_id if alert else 0,
+        secondaryObject=alert.satellite_b_name if alert else "Unknown",
+        secondaryNoradId=alert.satellite_b_norad_id if alert else 0,
+        riskLevel=alert.risk_level if alert else "low",
+        previousStatus=h.previous_status,
+        newStatus=h.new_status,
+        actionTaken=action_label,
+        changedBy=changed_by_str,
+        operatorName=operator_name,
+        changedAt=h.changed_at,
+        notes=h.notes,
+    )
 
 
 def _format_alert(alert) -> dict:
@@ -78,6 +147,34 @@ async def get_alerts(
     return [_format_alert(a) for a in alerts]
 
 
+@router.get("/history", response_model=AlertStatusHistoryListResponse)
+async def get_alert_history(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    alert_id: Optional[str] = Query(None, description="Filter by conjunction alert ID"),
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AlertService(db)
+    items, total = await service.get_alert_history(page=page, limit=limit, alert_id=alert_id)
+
+    profiles_lookup = _get_profiles_lookup()
+    formatted = [
+        _format_history_item(h, profiles_lookup, current_user)
+        for h in items
+    ]
+
+    total_pages = max(1, (total + limit - 1) // limit) if total > 0 else 1
+
+    return AlertStatusHistoryListResponse(
+        items=formatted,
+        total=total,
+        page=page,
+        limit=limit,
+        totalPages=total_pages,
+    )
+
+
 @router.put("/{alert_id}/status", response_model=ConjunctionAlertResponse)
 async def update_alert_status(
     alert_id: str,
@@ -93,12 +190,18 @@ async def update_alert_status(
         )
 
     service = AlertService(db)
-    alert = await service.update_alert_status(alert_id, update.status.lower())
+    alert = await service.update_alert_status(
+        alert_id=alert_id,
+        new_status=update.status.lower(),
+        changed_by=current_user.id,
+        notes=update.notes,
+    )
 
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
     return _format_alert(alert)
+
 
 
 @router.post("/screen", response_model=ScreeningRunResponse)

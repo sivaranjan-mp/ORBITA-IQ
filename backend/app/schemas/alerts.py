@@ -1,10 +1,11 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel
 
 
 class AlertStatusUpdate(BaseModel):
     status: str
+    notes: Optional[str] = None
 
 
 class ConjunctionAlertResponse(BaseModel):
@@ -32,3 +33,29 @@ class ScreeningRunResponse(BaseModel):
     totalDetected: int
     stage1Survivors: int
     durationSeconds: float
+
+
+class AlertStatusHistoryResponse(BaseModel):
+    id: str
+    alertId: str
+    primarySatellite: str
+    primaryNoradId: int
+    secondaryObject: str
+    secondaryNoradId: int
+    riskLevel: str
+    previousStatus: str
+    newStatus: str
+    actionTaken: str
+    changedBy: Optional[str] = None
+    operatorName: Optional[str] = None
+    changedAt: datetime
+    notes: Optional[str] = None
+
+
+class AlertStatusHistoryListResponse(BaseModel):
+    items: List[AlertStatusHistoryResponse]
+    total: int
+    page: int
+    limit: int
+    totalPages: int
+

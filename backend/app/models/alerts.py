@@ -83,6 +83,40 @@ class ConjunctionAlert(Base):
     ai_advisory: Mapped[Optional["AIManeuverAdvisory"]] = relationship(
         "AIManeuverAdvisory", back_populates="alert", uselist=False, cascade="all, delete-orphan", lazy="selectin"
     )
+    status_history: Mapped[List["AlertStatusHistory"]] = relationship(
+        "AlertStatusHistory", back_populates="alert", cascade="all, delete-orphan", lazy="selectin", order_by="desc(AlertStatusHistory.changed_at)"
+    )
+
+
+class AlertStatusHistory(Base):
+    """
+    Audit log of status changes and operator actions on conjunction alerts.
+    """
+    __tablename__ = 'alert_status_history'
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    alert_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('conjunction_alerts.id', ondelete='CASCADE'), nullable=False, index=True
+    )
+    previous_status: Mapped[str] = mapped_column(
+        ENUM(ConjunctionStatus, name="alert_status", create_type=False, values_callable=lambda x: [e.value for e in x]),
+        nullable=False
+    )
+    new_status: Mapped[str] = mapped_column(
+        ENUM(ConjunctionStatus, name="alert_status", create_type=False, values_callable=lambda x: [e.value for e in x]),
+        nullable=False
+    )
+    changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('profiles.id', ondelete='SET NULL'), nullable=True
+    )
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    alert: Mapped["ConjunctionAlert"] = relationship(back_populates="status_history")
 
 
 class Alert(Base):
@@ -158,3 +192,4 @@ class AlertHistory(Base):
     )
 
     alert: Mapped["Alert"] = relationship(back_populates="history")
+

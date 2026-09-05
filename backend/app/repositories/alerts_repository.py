@@ -1,9 +1,11 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
+import uuid
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
-from app.models.alerts import Alert, AlertHistory, ConjunctionAlert
+from app.models.alerts import Alert, AlertHistory, AlertStatusHistory, ConjunctionAlert
 
 
 class AlertsRepository:
@@ -57,3 +59,39 @@ class AlertsRepository:
         await self.session.commit()
         await self.session.refresh(history)
         return history
+
+    async def add_status_history(self, history: AlertStatusHistory) -> AlertStatusHistory:
+        self.session.add(history)
+        await self.session.commit()
+        await self.session.refresh(history)
+        return history
+
+    async def get_alert_status_history(
+        self,
+        page: int = 1,
+        limit: int = 20,
+        alert_id: Optional[str] = None
+    ) -> Tuple[List[AlertStatusHistory], int]:
+        stmt = select(AlertStatusHistory).options(
+            joinedload(AlertStatusHistory.alert)
+        )
+        count_stmt = select(func.count()).select_from(AlertStatusHistory)
+
+        if alert_id:
+            try:
+                alert_uuid = uuid.UUID(str(alert_id))
+                stmt = stmt.where(AlertStatusHistory.alert_id == alert_uuid)
+                count_stmt = count_stmt.where(AlertStatusHistory.alert_id == alert_uuid)
+            except (ValueError, TypeError):
+                pass
+
+        total_res = await self.session.execute(count_stmt)
+        total = total_res.scalar_one() or 0
+
+        offset = max(0, (page - 1) * limit)
+        stmt = stmt.order_by(AlertStatusHistory.changed_at.desc()).offset(offset).limit(limit)
+        result = await self.session.execute(stmt)
+        items = result.scalars().all()
+
+        return list(items), total
+

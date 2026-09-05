@@ -33,7 +33,7 @@ from app.db.session import Base
 from app.models.satellites import Satellite, OrbitState, TLERecord, OMMRecord
 from app.models.conjunctions import ConjunctionEvent
 from app.models.catalog import CatalogSatellite
-from app.models.alerts import Alert, AlertHistory, ConjunctionAlert
+from app.models.alerts import Alert, AlertHistory, AlertStatusHistory, ConjunctionAlert
 
 target_metadata = Base.metadata
 

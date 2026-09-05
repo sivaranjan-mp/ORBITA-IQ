@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 import uuid
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.models.alerts import Alert, AlertHistory, ConjunctionAlert
+from app.models.alerts import Alert, AlertHistory, AlertStatusHistory, ConjunctionAlert
 from app.models.conjunctions import ConjunctionEvent
 from app.repositories.alerts_repository import AlertsRepository
 
@@ -97,15 +97,40 @@ class AlertService:
             pass
         return await self.repository.get_alert_by_id(alert_id)
 
-    async def update_alert_status(self, alert_id: str, new_status: str) -> Optional[Union[ConjunctionAlert, Alert]]:
+    async def update_alert_status(
+        self,
+        alert_id: str,
+        new_status: str,
+        changed_by: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Optional[Union[ConjunctionAlert, Alert]]:
         alert = await self.get_alert(alert_id)
         if not alert:
             return None
 
         if isinstance(alert, ConjunctionAlert):
+            prev_status = alert.status
             alert.status = new_status
             alert.updated_at = datetime.now(timezone.utc)
             self.session.add(alert)
+
+            user_uuid = None
+            if changed_by:
+                try:
+                    user_uuid = uuid.UUID(str(changed_by))
+                except (ValueError, TypeError):
+                    user_uuid = None
+
+            status_history = AlertStatusHistory(
+                id=uuid.uuid4(),
+                alert_id=alert.id,
+                previous_status=prev_status,
+                new_status=new_status,
+                changed_by=user_uuid,
+                changed_at=datetime.now(timezone.utc),
+                notes=notes,
+            )
+            self.session.add(status_history)
             await self.session.commit()
             await self.session.refresh(alert)
             return alert
@@ -126,6 +151,15 @@ class AlertService:
         await self.session.refresh(alert)
 
         return alert
+
+    async def get_alert_history(
+        self,
+        page: int = 1,
+        limit: int = 20,
+        alert_id: Optional[str] = None
+    ) -> Tuple[List[AlertStatusHistory], int]:
+        return await self.repository.get_alert_status_history(page=page, limit=limit, alert_id=alert_id)
+
 
     async def create_alert_from_conjunction(self, event: ConjunctionEvent) -> Alert:
         existing = await self.session.execute(
