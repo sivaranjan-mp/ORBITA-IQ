@@ -12,7 +12,7 @@ export function LoginPage() {
             <Satellite className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">Satellite Ops Console</h1>
+            <h1 className="text-lg font-semibold tracking-tight">Orbita-IQ Console</h1>
             <p className="text-sm text-muted-foreground">Conjunction Intelligence Dashboard</p>
           </div>
         </div>

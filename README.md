@@ -1,8 +1,8 @@
 # ORBITA-IQ
 
-# Satellite Ops — Authentication System
+# Orbita-IQ — Authentication System
 
-Production-ready authentication module for the Satellite Operations &
+Production-ready authentication module for the Orbita-IQ &
 Conjunction Intelligence Dashboard: Employee ID login, Admin/Operator roles,
 protected routes, Supabase Auth, password reset, and session persistence.
 

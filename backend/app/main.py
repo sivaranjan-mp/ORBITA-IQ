@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
 
 app = FastAPI(
-    title="Satellite Ops & Conjunction Intelligence — Auth Service",
+    title="Orbita-IQ & Conjunction Intelligence — Auth Service",
     version="1.0.0",
     description="Employee ID based authentication service (Admin / Operator roles) backed by Supabase Auth.",
     lifespan=lifespan,
