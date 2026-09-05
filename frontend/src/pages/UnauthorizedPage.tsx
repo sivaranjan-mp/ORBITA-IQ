@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 
 export function UnauthorizedPage() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
+    <div className="flex h-full w-full flex-col items-center justify-center overflow-y-auto gap-4 bg-background px-4 py-8 text-center">
       <ShieldAlert className="h-10 w-10 text-destructive" />
       <div>
         <h1 className="text-lg font-semibold">Access restricted</h1>

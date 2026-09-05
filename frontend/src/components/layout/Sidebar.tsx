@@ -15,7 +15,7 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   return (
-    <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-border bg-card/60 md:flex">
+    <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card/60 md:flex h-full min-h-0 overflow-hidden">
       <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-border px-5">
         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/15">
           <Satellite className="h-4 w-4 text-primary" />
@@ -28,7 +28,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+      <nav className="flex-1 space-y-1 p-3 overflow-y-auto min-h-0">
         {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}

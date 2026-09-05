@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 export function ResetPasswordPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex h-full w-full items-center justify-center overflow-y-auto bg-background px-4 py-8">
       <div className="w-full max-w-sm">
         <Card>
           <CardHeader>
