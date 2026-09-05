@@ -543,12 +543,12 @@ export function OrbitViewerPage() {
               </button>
             </div>
 
-            {/* Time Warp / Simulation Speed Selector (1x and 5x removed) */}
+            {/* Time Warp / Simulation Speed Selector */}
             <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/85 p-1 shadow-xl backdrop-blur-md pointer-events-auto">
               <span className="px-2 text-[10px] font-mono uppercase text-muted-foreground flex items-center gap-1">
                 <FastForward className="h-3 w-3 text-cyan-400" /> Warp:
               </span>
-              {[15, 30, 60, 120].map((speed) => (
+              {[1, 5, 10, 15, 30, 60, 120].map((speed) => (
                 <button
                   key={speed}
                   onClick={() => setSimSpeed(speed)}

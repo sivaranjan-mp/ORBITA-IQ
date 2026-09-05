@@ -7,14 +7,56 @@ const RAD = 180 / Math.PI;
 /** Standard gravitational parameter for Earth in km^3 / s^2 */
 const MU_EARTH = 398600.4418;
 
+function getSafeNoradId(sat: Satellite): number {
+  if (typeof sat.noradId === "number" && !isNaN(sat.noradId) && sat.noradId > 0) {
+    return sat.noradId;
+  }
+  const digits = String(sat.id || "").replace(/\D/g, "");
+  const parsed = parseInt(digits, 10);
+  if (!isNaN(parsed) && parsed > 0) return parsed;
+  let hash = 0;
+  const str = sat.name || sat.id || "SAT";
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash) || 25544;
+}
+
+function getSafeAltitudeKm(sat: Satellite): number {
+  if (sat.altitudeKm != null && !isNaN(sat.altitudeKm) && sat.altitudeKm > 0) {
+    return Math.max(160, sat.altitudeKm);
+  }
+  return 550;
+}
+
+function getSafePeriodMinutes(sat: Satellite, altitude: number): number {
+  let period =
+    sat.periodMinutes != null && !isNaN(sat.periodMinutes) && sat.periodMinutes > 0
+      ? sat.periodMinutes
+      : (2 * Math.PI * Math.sqrt(Math.pow(EARTH_RADIUS_KM + altitude, 3) / MU_EARTH)) / 60;
+
+  // If period is close to Earth's sidereal rotation (~1436.07 min, Geostationary),
+  // in ECEF frame it has zero relative motion. Add small realistic drift so it visibly moves.
+  if (Math.abs(period - 1436.07) < 6) {
+    const driftSign = (getSafeNoradId(sat) % 2 === 0) ? 1 : -1;
+    period = 1436.07 + driftSign * 18;
+  }
+  return Math.max(85, period);
+}
+
 /**
  * Checks whether a satellite has complete orbital element data for propagation.
  */
 export function hasOrbitalData(satellite: Satellite): boolean {
   return (
-    satellite.altitudeKm != null ||
-    satellite.periodMinutes != null ||
-    (satellite.latitudeDeg != null && satellite.longitudeDeg != null)
+    satellite != null &&
+    (satellite.altitudeKm != null ||
+      satellite.periodMinutes != null ||
+      satellite.latitudeDeg != null ||
+      satellite.longitudeDeg != null ||
+      satellite.noradId != null ||
+      Boolean(satellite.id))
   );
 }
 
@@ -34,12 +76,12 @@ export function computeGMST(date: Date): number {
  * Progresses prograde (forward in the direction of orbital velocity).
  */
 export function computeCurrentU(satellite: Satellite, date: Date): number {
-  const altitude = satellite.altitudeKm ?? 550;
-  const period =
-    satellite.periodMinutes && satellite.periodMinutes > 0
-      ? satellite.periodMinutes
-      : (2 * Math.PI * Math.sqrt(Math.pow(EARTH_RADIUS_KM + altitude, 3) / MU_EARTH)) / 60;
-  const meanAnomaly = satellite.meanAnomalyDeg ?? ((satellite.noradId * 43.123) % 360);
+  const altitude = getSafeAltitudeKm(satellite);
+  const period = getSafePeriodMinutes(satellite, altitude);
+  const noradId = getSafeNoradId(satellite);
+  const meanAnomaly = (satellite.meanAnomalyDeg != null && !isNaN(satellite.meanAnomalyDeg))
+    ? satellite.meanAnomalyDeg
+    : ((noradId * 43.123) % 360);
 
   // Delta time from TLE epoch or reference timestamp
   let minutesElapsed = 0;
@@ -71,9 +113,17 @@ export function computeOrbitPointAtU(
   uDeg: number,
   gmstDeg: number
 ): { latitudeDeg: number; longitudeDeg: number; heightMeters: number } {
-  const altitude = satellite.altitudeKm ?? 550;
-  const inclination = satellite.inclinationDeg ?? 51.6;
-  const raan = satellite.raanDeg ?? ((satellite.noradId * 137.508) % 360);
+  const altitude = getSafeAltitudeKm(satellite);
+  const noradId = getSafeNoradId(satellite);
+  let inclination = (satellite.inclinationDeg != null && !isNaN(satellite.inclinationDeg))
+    ? satellite.inclinationDeg
+    : 51.6;
+  if (Math.abs(inclination) < 0.5) {
+    inclination = (noradId % 20) + 5;
+  }
+  const raan = (satellite.raanDeg != null && !isNaN(satellite.raanDeg))
+    ? satellite.raanDeg
+    : ((noradId * 137.508) % 360);
 
   const uRad = uDeg * DEG;
   const iRad = inclination * DEG;
