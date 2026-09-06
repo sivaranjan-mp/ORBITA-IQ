@@ -303,7 +303,7 @@ export function OrbitViewerPage() {
               />
             </span>
             <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-              {isWsConnected ? "WS Live Stream" : "SGP4 IAU Propagator"}
+              {isWsConnected ? "WS Ephemeris Stream" : "Client IAU Propagator"}
             </span>
           </div>
         </div>

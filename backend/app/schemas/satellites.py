@@ -73,6 +73,7 @@ class SatelliteResponse(BaseModel):
     lastTleEpoch: Optional[datetime] = None
     raanDeg: Optional[float] = None
     meanAnomalyDeg: Optional[float] = None
+    updatedAt: Optional[datetime] = None
 
 
 class SatelliteBulkAddRequest(BaseModel):
@@ -89,3 +90,11 @@ class SatelliteBulkAddResponse(BaseModel):
     successful: int
     failed: int
     results: list[SatelliteBulkAddResult]
+
+
+class SatelliteRefreshResponse(BaseModel):
+    message: str
+    updated_count: int
+    duration_seconds: float
+    timestamp: datetime
+

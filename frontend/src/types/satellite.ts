@@ -22,4 +22,13 @@ export interface Satellite {
   /** Orbital elements used only to animate a simplified ground-track demo. */
   raanDeg: number | null;
   meanAnomalyDeg: number | null;
+  updatedAt?: string | null;
 }
+
+export interface SatelliteRefreshResponse {
+  message: string;
+  updated_count: number;
+  duration_seconds: number;
+  timestamp: string;
+}
+

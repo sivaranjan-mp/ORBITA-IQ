@@ -187,9 +187,14 @@ export interface CesiumGlobeProps {
 
 interface WsOrbitUpdate {
   satelliteId: string;
+  noradId?: number;
   latitudeDeg: number;
   longitudeDeg: number;
   altitudeKm: number;
+  velocityKmS?: number;
+  inclinationDeg?: number;
+  periodMinutes?: number;
+  epoch?: string;
 }
 
 function getImageryProvider(style: ImageryStyle): Cesium.ImageryProvider {
@@ -526,13 +531,42 @@ export const CesiumGlobe = forwardRef<CesiumGlobeHandle, CesiumGlobeProps>(funct
 
         ws.onmessage = (event) => {
           try {
-            const data: WsOrbitUpdate = JSON.parse(event.data);
-            if (data.satelliteId && data.latitudeDeg != null && data.longitudeDeg != null) {
-              livePositionsRef.current[data.satelliteId] = {
-                lat: data.latitudeDeg,
-                lon: data.longitudeDeg,
-                alt: (data.altitudeKm || 500) * 1000,
-              };
+            const parsed = JSON.parse(event.data);
+            const updates: WsOrbitUpdate[] =
+              parsed?.type === "ORBIT_UPDATE" && Array.isArray(parsed?.data)
+                ? parsed.data
+                : Array.isArray(parsed)
+                ? parsed
+                : parsed?.satelliteId
+                ? [parsed]
+                : [];
+
+            if (updates.length > 0) {
+              const updatedMap = new Map<string, WsOrbitUpdate>();
+              updates.forEach((u) => {
+                if (u.satelliteId && u.latitudeDeg != null && u.longitudeDeg != null) {
+                  updatedMap.set(u.satelliteId, u);
+                  livePositionsRef.current[u.satelliteId] = {
+                    lat: u.latitudeDeg,
+                    lon: u.longitudeDeg,
+                    alt: (u.altitudeKm || 500) * 1000,
+                  };
+                }
+              });
+
+              // Apply updated state vectors & latest TLE ephemeris epoch to in-memory satellite fleet
+              satellitesRef.current.forEach((sat) => {
+                const u = updatedMap.get(sat.id);
+                if (u) {
+                  if (u.latitudeDeg != null) sat.latitudeDeg = u.latitudeDeg;
+                  if (u.longitudeDeg != null) sat.longitudeDeg = u.longitudeDeg;
+                  if (u.altitudeKm != null) sat.altitudeKm = u.altitudeKm;
+                  if (u.velocityKmS != null) sat.velocityKmS = u.velocityKmS;
+                  if (u.inclinationDeg != null) sat.inclinationDeg = u.inclinationDeg;
+                  if (u.periodMinutes != null) sat.periodMinutes = u.periodMinutes;
+                  if (u.epoch != null) sat.lastTleEpoch = u.epoch;
+                }
+              });
             }
           } catch {
             /* ignore malformed frames */

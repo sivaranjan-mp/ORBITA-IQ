@@ -298,3 +298,139 @@ def test_list_satellites_returns_owner_details():
         assert data[0]["ownerName"] == "Admin User"
         assert data[0]["ownerEmployeeId"] == "EMP-0001"
 
+
+def test_refresh_satellites_success():
+    import app.api.v1.endpoints.satellites as sat_endpoint
+    sat_endpoint._last_manual_refresh_time = 0.0  # Reset cooldown
+
+    operator_user = UserProfile(
+        id="user-456",
+        employee_id="EMP-0002",
+        email="operator@example.com",
+        full_name="Operator User",
+        role="operator",
+        is_active=True
+    )
+    app.dependency_overrides[get_current_user] = lambda: operator_user
+
+    mock_summary = {
+        "updated_count": 8,
+        "duration_seconds": 0.354,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+    with patch("app.api.v1.endpoints.satellites.update_orbit_states", new_callable=AsyncMock) as mock_update:
+        mock_update.return_value = mock_summary
+        response = client.post("/api/v1/satellites/refresh")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["updated_count"] == 8
+        assert data["duration_seconds"] == 0.354
+        assert "timestamp" in data
+        assert "Successfully updated 8 satellites" in data["message"]
+        mock_update.assert_called_once()
+
+
+def test_refresh_satellites_forbidden_for_viewer():
+    viewer_user = MagicMock()
+    viewer_user.role = "viewer"
+    viewer_user.employee_id = "EMP-0003"
+    app.dependency_overrides[get_current_user] = lambda: viewer_user
+
+    response = client.post("/api/v1/satellites/refresh")
+    assert response.status_code == 403
+    assert "Insufficient permissions" in response.json()["detail"]
+
+
+def test_refresh_satellites_unauthenticated():
+    response = client.post("/api/v1/satellites/refresh")
+    assert response.status_code in (401, 403)
+
+
+
+
+def test_refresh_satellites_rate_limiting_cooldown():
+    import app.api.v1.endpoints.satellites as sat_endpoint
+    sat_endpoint._last_manual_refresh_time = 0.0  # Reset cooldown
+
+    admin_user = UserProfile(
+        id="user-123",
+        employee_id="EMP-0001",
+        email="admin@example.com",
+        full_name="Admin User",
+        role="admin",
+        is_active=True
+    )
+    app.dependency_overrides[get_current_user] = lambda: admin_user
+
+    mock_summary = {
+        "updated_count": 5,
+        "duration_seconds": 0.2,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+    with patch("app.api.v1.endpoints.satellites.update_orbit_states", new_callable=AsyncMock) as mock_update:
+        mock_update.return_value = mock_summary
+        # First call succeeds
+        res1 = client.post("/api/v1/satellites/refresh")
+        assert res1.status_code == 200
+
+        # Immediate second call is rejected with 429 Too Many Requests
+        res2 = client.post("/api/v1/satellites/refresh")
+        assert res2.status_code == 429
+        assert "Rate limit exceeded" in res2.json()["detail"]
+        assert "Retry-After" in res2.headers
+
+
+def test_list_satellites_includes_updated_at():
+    admin_user = UserProfile(
+        id="user-123",
+        employee_id="EMP-0001",
+        email="admin@example.com",
+        full_name="Admin User",
+        role="admin",
+        is_active=True
+    )
+    app.dependency_overrides[get_current_user] = lambda: admin_user
+
+    now = datetime.now(timezone.utc)
+    mock_db = AsyncMock()
+    sat = Satellite(
+        id=uuid.uuid4(),
+        norad_id=25544,
+        name="ISS (ZARYA)",
+        owner_org="EMP-0001",
+        object_type="payload",
+        status="active",
+        orbit_state=OrbitState(
+            satellite_id=uuid.uuid4(),
+            altitude_km=420.0,
+            latitude_deg=15.0,
+            longitude_deg=45.0,
+            velocity_km_s=7.66,
+            inclination_deg=51.6,
+            period_minutes=92.5,
+            eccentricity=0.0001,
+            raan_deg=0.0,
+            mean_anomaly_deg=0.0,
+            epoch=now,
+            updated_at=now
+        )
+    )
+    mock_res = MagicMock()
+    mock_res.scalars().all.return_value = [sat]
+    mock_db.execute.return_value = mock_res
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    mock_admin = MagicMock()
+    mock_admin.table.return_value.select.return_value.execute.return_value.data = []
+
+    with patch("app.api.v1.endpoints.satellites.get_admin_client", return_value=mock_admin):
+        response = client.get("/api/v1/satellites?scope=all")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert "updatedAt" in data[0]
+        assert data[0]["updatedAt"] is not None
+
+

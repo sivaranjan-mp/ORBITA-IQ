@@ -19,14 +19,20 @@ from app.schemas.satellites import (
     SatelliteBulkAddRequest,
     SatelliteBulkAddResponse,
     SatelliteBulkAddResult,
+    SatelliteRefreshResponse,
 )
 from app.services.celestrak_service import CELESTRAK_HEADERS
 from app.services.satellite_service import SatelliteService
+from app.services.orbit_scheduler import update_orbit_states
 from app.models.satellites import Satellite
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/satellites", tags=["satellites"])
+
+REFRESH_COOLDOWN_SECONDS: int = 30
+_last_manual_refresh_time: float = 0.0
+_refresh_lock = asyncio.Lock()
 
 
 _PROFILES_CACHE: dict[str, str] = {}
@@ -58,6 +64,13 @@ def _get_owner_profiles_map() -> dict[str, str]:
 
 def _format_satellite_response(sat: Satellite, owner_name: Optional[str] = None) -> dict:
     owner_emp_id = sat.owner_org if sat.owner_org and sat.owner_org != "Unknown" else None
+    
+    orbit_updated_at = None
+    if sat.orbit_state and sat.orbit_state.updated_at:
+        orbit_updated_at = sat.orbit_state.updated_at
+    elif sat.updated_at:
+        orbit_updated_at = sat.updated_at
+
     resp = {
         "id": str(sat.id),
         "noradId": sat.norad_id,
@@ -78,6 +91,7 @@ def _format_satellite_response(sat: Satellite, owner_name: Optional[str] = None)
         "lastTleEpoch": None,
         "raanDeg": None,
         "meanAnomalyDeg": None,
+        "updatedAt": orbit_updated_at,
     }
 
     if sat.orbit_state and sat.orbit_state.latitude_deg is not None and sat.orbit_state.latitude_deg != 0.0:
@@ -196,6 +210,62 @@ async def get_satellite(
         current_user.full_name if (sat.owner_org or "").strip().upper() == current_user.employee_id.strip().upper() else None
     )
     return _format_satellite_response(sat, owner_name=owner_name)
+
+
+@router.post("/refresh", response_model=SatelliteRefreshResponse)
+async def refresh_satellite_orbits(
+    current_user: UserProfile = Depends(get_current_user),
+):
+    """
+    Trigger on-demand SGP4 orbit state propagation for all active fleet satellites.
+    Restricted to 'admin' and 'operator' roles.
+    Enforces a 30-second cooldown rate limit to prevent spam and preserve compute/CelesTrak quotas.
+    """
+    global _last_manual_refresh_time
+
+    if current_user.role not in ("admin", "operator"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions. Only administrators and operators can trigger manual orbit propagation."
+        )
+
+    now = time.time()
+    elapsed = now - _last_manual_refresh_time
+    if elapsed < REFRESH_COOLDOWN_SECONDS:
+        remaining = int(REFRESH_COOLDOWN_SECONDS - elapsed) + 1
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Rate limit exceeded. Manual refresh is cooling down. Please wait {remaining} seconds.",
+            headers={"Retry-After": str(remaining)}
+        )
+
+    async with _refresh_lock:
+        now = time.time()
+        elapsed = now - _last_manual_refresh_time
+        if elapsed < REFRESH_COOLDOWN_SECONDS:
+            remaining = int(REFRESH_COOLDOWN_SECONDS - elapsed) + 1
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded. Manual refresh is cooling down. Please wait {remaining} seconds.",
+                headers={"Retry-After": str(remaining)}
+            )
+
+        try:
+            from datetime import datetime
+            res = await update_orbit_states()
+            _last_manual_refresh_time = time.time()
+            return SatelliteRefreshResponse(
+                message=f"Successfully updated {res['updated_count']} satellites in {res['duration_seconds']}s",
+                updated_count=res["updated_count"],
+                duration_seconds=res["duration_seconds"],
+                timestamp=datetime.fromisoformat(res["timestamp"])
+            )
+        except Exception as e:
+            logger.exception(f"Error during manual orbit refresh: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to refresh orbit states: {str(e)}"
+            )
 
 
 @router.post("/norad", response_model=SatelliteResponse)

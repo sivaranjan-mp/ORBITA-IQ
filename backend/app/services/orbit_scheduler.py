@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import text
@@ -22,10 +23,13 @@ scheduler = AsyncIOScheduler()
 
 async def update_orbit_states():
     """
-    Background job triggered on scheduler interval.
-    Propagates all active fleet satellites using SGP4 and updates database and WebSockets.
+    Core fleet orbit state propagation logic.
+    Can be called by APScheduler background job or by on-demand API endpoints.
+    Propagates all active fleet satellites using SGP4, updates database, and broadcasts WebSockets.
+    Returns a summary dict with updated_count, duration_seconds, and timestamp.
     """
-    logger.info("Starting scheduled fleet orbit state propagation.")
+    start_time = time.perf_counter()
+    logger.info("Starting fleet orbit state propagation.")
 
     async with async_session_maker() as db:
         try:
@@ -109,11 +113,12 @@ async def update_orbit_states():
                     for sat in sats_to_update:
                         state = computed_states[sat.id]
                         if not sat.orbit_state:
-                            sat.orbit_state = OrbitState(satellite_id=sat.id, **state)
+                            sat.orbit_state = OrbitState(satellite_id=sat.id, updated_at=now, **state)
                             db.add(sat.orbit_state)
                         else:
                             for key, value in state.items():
                                 setattr(sat.orbit_state, key, value)
+                            sat.orbit_state.updated_at = now
 
                         updates_to_broadcast.append({
                             "satelliteId": str(sat.id),
@@ -136,10 +141,16 @@ async def update_orbit_states():
             if updates_to_broadcast:
                 await orbit_manager.broadcast_orbit_updates(updates_to_broadcast)
 
-            logger.info(f"Finished orbit state update for {len(updates_to_broadcast)} satellites.")
+            duration = round(time.perf_counter() - start_time, 3)
+            logger.info(f"Finished orbit state update for {len(updates_to_broadcast)} satellites in {duration}s.")
+            return {
+                "updated_count": len(updates_to_broadcast),
+                "duration_seconds": duration,
+                "timestamp": now.isoformat()
+            }
 
         except Exception as e:
-            logger.exception(f"Critical error in scheduled orbit update: {e}")
+            logger.exception(f"Critical error in fleet orbit update: {e}")
             await db.rollback()
             raise
 

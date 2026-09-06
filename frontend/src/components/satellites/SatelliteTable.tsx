@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, ArrowUpDown, Search } from "lucide-react";
 
+import { RefreshOrbitButton } from "@/components/satellites/RefreshOrbitButton";
 import { SatelliteStatusBadge } from "@/components/satellites/SatelliteStatusBadge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,12 +32,22 @@ export function SatelliteTable({
   highlightOwned = scope === "all",
 }: SatelliteTableProps = {}) {
   const { profile, session } = useAuth();
-  const { satellites, isLoading } = useSatellites(scope);
+  const {
+    satellites,
+    isLoading,
+    refreshFleetOrbits,
+    isRefreshingOrbit,
+    cooldownRemaining,
+    latestOrbitUpdatedAt,
+    orbitRefreshResult,
+    orbitRefreshError,
+  } = useSatellites(scope);
   const { alerts } = useAlerts();
   const [query, setQuery] = useState("");
   const [riskOnly, setRiskOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [sortBy, setSortBy] = useState<"status" | "collision" | "name" | "norad" | "altitude">("status");
+
 
   // Map each satellite NORAD ID to its earliest upcoming conjunction alert
   const collisionMap = useMemo(() => {
@@ -213,23 +224,36 @@ export function SatelliteTable({
           </div>
         </div>
 
-        {/* Sort Controls */}
-        <div className="flex items-center gap-1.5 text-xs">
-          <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-muted-foreground font-medium">Sort:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "status" | "collision" | "name" | "norad" | "altitude")}
-            className="rounded border border-border bg-card px-2 py-1 text-xs font-medium text-foreground outline-none cursor-pointer"
-          >
-            <option value="status">Status (Active / Moving First)</option>
-            <option value="collision">Collision Risk (Earliest First)</option>
-            <option value="name">Name (A–Z)</option>
-            <option value="norad">NORAD ID</option>
-            <option value="altitude">Altitude (High to Low)</option>
-          </select>
+        {/* Right side controls: Refresh Orbit & Sort */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <RefreshOrbitButton
+            onRefresh={refreshFleetOrbits}
+            isRefreshing={isRefreshingOrbit}
+            cooldownRemaining={cooldownRemaining}
+            latestUpdatedAt={latestOrbitUpdatedAt}
+            refreshResult={orbitRefreshResult}
+            refreshError={orbitRefreshError}
+          />
+
+          {/* Sort Controls */}
+          <div className="flex items-center gap-1.5 text-xs">
+            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-muted-foreground font-medium">Sort:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as "status" | "collision" | "name" | "norad" | "altitude")}
+              className="rounded border border-border bg-card px-2 py-1 text-xs font-medium text-foreground outline-none cursor-pointer"
+            >
+              <option value="status">Status (Active / Moving First)</option>
+              <option value="collision">Collision Risk (Earliest First)</option>
+              <option value="name">Name (A–Z)</option>
+              <option value="norad">NORAD ID</option>
+              <option value="altitude">Altitude (High to Low)</option>
+            </select>
+          </div>
         </div>
       </div>
+
 
       <div className="rounded-lg border border-border">
         <Table>

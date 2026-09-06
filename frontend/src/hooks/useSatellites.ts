@@ -1,14 +1,15 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import type { AxiosError } from "axios";
 
 import { useAuth } from "@/hooks/useAuth";
 import { apiClient } from "@/lib/apiClient";
 import { DEFAULT_SATELLITES } from "@/data/defaultSatellites";
-import type { Satellite } from "@/types/satellite";
+import type { Satellite, SatelliteRefreshResponse } from "@/types/satellite";
 
 const MOCK_SATELLITES: Satellite[] = DEFAULT_SATELLITES;
 
-
 const SYNC_CYCLE_SECONDS = 10;
+const MANUAL_COOLDOWN_SECONDS = 30;
 
 function areSatellitesEqual(a: Satellite[], b: Satellite[]): boolean {
   if (a.length !== b.length) return false;
@@ -21,7 +22,8 @@ function areSatellitesEqual(a: Satellite[], b: Satellite[]): boolean {
       s1.altitudeKm !== s2.altitudeKm ||
       s1.latitudeDeg !== s2.latitudeDeg ||
       s1.longitudeDeg !== s2.longitudeDeg ||
-      s1.velocityKmS !== s2.velocityKmS
+      s1.velocityKmS !== s2.velocityKmS ||
+      s1.updatedAt !== s2.updatedAt
     ) {
       return false;
     }
@@ -54,6 +56,12 @@ export function useSatellites(scope: "mine" | "all" = "mine") {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(() => new Date());
   const [secondsUntilNextSync, setSecondsUntilNextSync] = useState(SYNC_CYCLE_SECONDS);
+
+  // Manual Orbit Propagation State
+  const [isRefreshingOrbit, setIsRefreshingOrbit] = useState(false);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const [orbitRefreshResult, setOrbitRefreshResult] = useState<SatelliteRefreshResponse | null>(null);
+  const [orbitRefreshError, setOrbitRefreshError] = useState<string | null>(null);
 
   const fetchSatellites = useCallback(
     async (silent = false) => {
@@ -96,11 +104,75 @@ export function useSatellites(scope: "mine" | "all" = "mine") {
     [scope, profile?.employee_id]
   );
 
-  // Manual Instant Refresh trigger
+  // Trigger manual fleet orbit propagation
+  const refreshFleetOrbits = useCallback(async (): Promise<SatelliteRefreshResponse | null> => {
+    if (cooldownRemaining > 0) {
+      setOrbitRefreshError(`Please wait ${cooldownRemaining}s before refreshing again.`);
+      return null;
+    }
+
+    setIsRefreshingOrbit(true);
+    setOrbitRefreshError(null);
+    setOrbitRefreshResult(null);
+
+    try {
+      const { data } = await apiClient.post<SatelliteRefreshResponse>("/satellites/refresh");
+      setOrbitRefreshResult(data);
+      setCooldownRemaining(MANUAL_COOLDOWN_SECONDS);
+      setOrbitRefreshError(null);
+
+      // Immediately refetch visible satellites to load fresh propagation positions
+      await fetchSatellites(true);
+      return data;
+    } catch (err: unknown) {
+      const axiosErr = err as AxiosError<{ detail?: string }>;
+      if (axiosErr.response?.status === 429) {
+        const retryHeader = axiosErr.response.headers["retry-after"];
+        const waitSec = retryHeader ? parseInt(retryHeader, 10) : 30;
+        setCooldownRemaining(waitSec > 0 ? waitSec : 30);
+        setOrbitRefreshError(axiosErr.response.data?.detail || `Rate limit active. Please wait ${waitSec}s.`);
+      } else if (axiosErr.response?.status === 403) {
+        setOrbitRefreshError(axiosErr.response.data?.detail || "Permission denied. Only operators and admins can trigger manual orbit refresh.");
+      } else {
+        setOrbitRefreshError(axiosErr.response?.data?.detail || "Failed to refresh satellite orbit states.");
+      }
+      return null;
+    } finally {
+      setIsRefreshingOrbit(false);
+    }
+  }, [cooldownRemaining, fetchSatellites]);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (cooldownRemaining <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownRemaining((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownRemaining]);
+
+  // Manual Instant Refresh trigger (cached poll refetch)
   const instantSync = useCallback(() => {
     setSecondsUntilNextSync(SYNC_CYCLE_SECONDS);
     return fetchSatellites(true);
   }, [fetchSatellites]);
+
+  // Latest updated_at timestamp across loaded satellites
+  const latestOrbitUpdatedAt = useMemo(() => {
+    let latest: Date | null = null;
+    for (const s of satellites) {
+      const raw = s.updatedAt || s.lastTleEpoch;
+      if (raw) {
+        const d = new Date(raw);
+        if (!isNaN(d.getTime())) {
+          if (!latest || d.getTime() > latest.getTime()) {
+            latest = d;
+          }
+        }
+      }
+    }
+    return latest;
+  }, [satellites]);
 
   // Initial load
   useEffect(() => {
@@ -134,8 +206,16 @@ export function useSatellites(scope: "mine" | "all" = "mine") {
     isSyncing,
     error,
     lastUpdated,
+    latestOrbitUpdatedAt,
     secondsUntilNextSync,
     instantSync,
     refetch: () => fetchSatellites(false),
+    // Manual orbit propagation
+    refreshFleetOrbits,
+    isRefreshingOrbit,
+    cooldownRemaining,
+    orbitRefreshResult,
+    orbitRefreshError,
   };
 }
+
