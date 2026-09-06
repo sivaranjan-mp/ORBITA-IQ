@@ -1,4 +1,6 @@
-from sqlalchemy import Integer, String, Float, DateTime
+import uuid
+from sqlalchemy import Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime, timezone
 from typing import Optional
@@ -21,6 +23,9 @@ class CatalogSatellite(Base):
     eccentricity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     line1: Mapped[str] = mapped_column(String, nullable=False)
     line2: Mapped[str] = mapped_column(String, nullable=False)
+    source_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('data_sources.id', ondelete='SET NULL'), nullable=True, index=True
+    )
     epoch: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

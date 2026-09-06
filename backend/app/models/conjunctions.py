@@ -36,5 +36,8 @@ class ConjunctionEvent(Base):
         default="open"
     )
     detected_by: Mapped[str] = mapped_column(String, nullable=False)
+    algorithm_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('algorithm_versions.id', ondelete='SET NULL'), nullable=True, index=True
+    )
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

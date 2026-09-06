@@ -28,6 +28,9 @@ class Satellite(Base):
         default="active"
     )
     owner_org: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    source_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('data_sources.id', ondelete='SET NULL'), nullable=True, index=True
+    )
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(
@@ -88,6 +91,9 @@ class TLERecord(Base):
     line1: Mapped[str] = mapped_column(String, nullable=False)
     line2: Mapped[str] = mapped_column(String, nullable=False)
     source: Mapped[Optional[str]] = mapped_column(String, default="celestrak")
+    source_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('data_sources.id', ondelete='SET NULL'), nullable=True, index=True
+    )
     epoch: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False)
     created_at: Mapped[Optional[datetime]] = mapped_column(
@@ -103,6 +109,9 @@ class OMMRecord(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     satellite_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('satellites.id', ondelete='CASCADE'), nullable=False)
+    source_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('data_sources.id', ondelete='SET NULL'), nullable=True, index=True
+    )
     epoch: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)

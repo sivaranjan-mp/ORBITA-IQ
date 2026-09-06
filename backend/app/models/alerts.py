@@ -61,6 +61,9 @@ class ConjunctionAlert(Base):
         index=True
     )
     detected_by: Mapped[str] = mapped_column(String, nullable=False, default="satguard")
+    algorithm_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('algorithm_versions.id', ondelete='SET NULL'), nullable=True, index=True
+    )
 
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
