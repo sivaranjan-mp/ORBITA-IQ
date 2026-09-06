@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CheckCircle2, Eye } from "lucide-react";
 
 import { AlertStatusBadge } from "@/components/alerts/AlertStatusBadge";
+import { OrbitDataQualityPanel } from "@/components/conjunctions/OrbitDataQualityPanel";
 import { RiskBadge } from "@/components/dashboard/RiskBadge";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,7 +55,7 @@ export function AlertDetailDialog({
 
   return (
     <Dialog open={alert !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between pr-4">
             <div className="flex items-center gap-2">
@@ -130,7 +131,19 @@ export function AlertDetailDialog({
 
           <Row label="Detection Engine" value={alert.detectedBy.replace("_", " ")} />
           <Row label="Computed At" value={formatDateTime(alert.computedAt || alert.createdAt)} />
+
+          {/* Real-time Orbit Data Quality & Freshness Assessment */}
+          <Separator className="my-3" />
+          <OrbitDataQualityPanel
+            primarySatelliteName={alert.primarySatellite}
+            primaryNoradId={alert.primaryNoradId}
+            secondaryObjectName={alert.secondaryObject}
+            secondaryNoradId={alert.secondaryNoradId}
+            primaryQuality={alert.primaryDataQuality}
+            secondaryQuality={alert.secondaryDataQuality}
+          />
         </div>
+
 
         {onStatusUpdate && (
           <DialogFooter className="flex gap-2 sm:justify-between pt-2">

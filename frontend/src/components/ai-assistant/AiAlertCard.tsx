@@ -209,6 +209,7 @@ export function AiAlertCard({
           ) : advisory ? (
             <AiAdvisoryDetail
               advisory={advisory}
+              alert={alert}
               onRegenerate={() => onGenerate(alert, true)}
               isRegenerating={isGenerating}
             />

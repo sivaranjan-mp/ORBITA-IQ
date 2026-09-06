@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel
 
+from app.schemas.astrodynamics import OrbitDataQualityBundle
+
 
 class AlertStatusUpdate(BaseModel):
     status: str
@@ -25,6 +27,8 @@ class ConjunctionAlertResponse(BaseModel):
     detectedBy: str = "satguard"
     createdAt: datetime
     computedAt: Optional[datetime] = None
+    primaryDataQuality: Optional[OrbitDataQualityBundle] = None
+    secondaryDataQuality: Optional[OrbitDataQualityBundle] = None
 
 
 class ScreeningRunResponse(BaseModel):

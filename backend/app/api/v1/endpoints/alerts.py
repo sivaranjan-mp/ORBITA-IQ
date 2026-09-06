@@ -24,6 +24,7 @@ from app.schemas.alerts import (
 )
 from app.schemas.auth import UserProfile
 from app.services.alert_service import AlertService
+from app.services.data_quality_service import DataQualityService
 from app.services.satguard_service import SatguardService
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,8 @@ def _format_alert(alert) -> dict:
             "detectedBy": alert.detected_by,
             "createdAt": alert.created_at,
             "computedAt": alert.computed_at,
+            "primaryDataQuality": None,
+            "secondaryDataQuality": None,
         }
     else:
         return {
@@ -134,7 +137,41 @@ def _format_alert(alert) -> dict:
             "detectedBy": alert.conjunction_event.detected_by if getattr(alert, "conjunction_event", None) else "satguard",
             "createdAt": alert.created_at,
             "computedAt": alert.created_at,
+            "primaryDataQuality": None,
+            "secondaryDataQuality": None,
         }
+
+
+async def _format_alerts_with_quality(alerts: list, db: AsyncSession) -> list[dict]:
+    quality_cache = {}
+    now = datetime.now(timezone.utc)
+
+    async def get_quality(norad_id: int, sat_id: Optional[Any] = None):
+        cache_key = (norad_id, str(sat_id) if sat_id else None)
+        if cache_key not in quality_cache:
+            bundle = await DataQualityService.evaluate_orbit_quality(
+                db=db, norad_id=norad_id, satellite_id=sat_id, explicit_now=now
+            )
+            quality_cache[cache_key] = bundle
+        return quality_cache[cache_key]
+
+    formatted_list = []
+    for a in alerts:
+        base_dict = _format_alert(a)
+        pri_norad = base_dict["primaryNoradId"]
+        sec_norad = base_dict["secondaryNoradId"]
+        pri_id = getattr(a, "satellite_a_id", None)
+        sec_id = getattr(a, "satellite_b_id", None)
+
+        try:
+            base_dict["primaryDataQuality"] = await get_quality(pri_norad, pri_id)
+            base_dict["secondaryDataQuality"] = await get_quality(sec_norad, sec_id)
+        except Exception as exc:
+            logger.debug(f"Could not compute real-time orbit data quality for alert: {exc}")
+
+        formatted_list.append(base_dict)
+
+    return formatted_list
 
 
 @router.get("", response_model=List[ConjunctionAlertResponse])
@@ -144,7 +181,8 @@ async def get_alerts(
 ):
     service = AlertService(db)
     alerts = await service.get_all_alerts()
-    return [_format_alert(a) for a in alerts]
+    return await _format_alerts_with_quality(alerts, db)
+
 
 
 @router.get("/history", response_model=AlertStatusHistoryListResponse)
@@ -200,7 +238,8 @@ async def update_alert_status(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
-    return _format_alert(alert)
+    formatted = await _format_alerts_with_quality([alert], db)
+    return formatted[0]
 
 
 

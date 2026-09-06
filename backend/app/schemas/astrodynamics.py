@@ -222,3 +222,41 @@ class DataFreshnessResponse(DataFreshnessBase):
 
     class Config:
         from_attributes = True
+
+
+# -----------------------------------------------------------------------------
+# Orbit Data Quality & Freshness Assessment
+# -----------------------------------------------------------------------------
+class OrbitDataQualityBundle(BaseModel):
+    source: str = Field(..., description="Display name of data source (e.g. CelesTrak, Manual Upload)")
+    source_code: str = Field(..., description="Canonical source code (e.g. CELESTRAK, USER_UPLOAD)")
+    is_authoritative: bool = Field(False, description="Whether data source is officially authoritative")
+    epoch: datetime = Field(..., description="Epoch timestamp of the orbital state elements")
+    ingestion_time: datetime = Field(..., description="Timestamp when record was ingested into the system")
+    age_hours: float = Field(..., description="Current elapsed age in hours from epoch to request time")
+    freshness_tier: str = Field(..., description="Freshness category: FRESH, AGING, STALE, CRITICAL")
+    propagation_model: str = Field(
+        default="SGP4 (WGS84 General Perturbations)",
+        description="Astrodynamics propagation model used"
+    )
+    orbit_regime: str = Field(default="LEO", description="LEO, MEO, GEO, HEO, OTHER")
+    data_quality: str = Field(..., description="Categorical rating: HIGH, MEDIUM, LOW, UNRELIABLE")
+    covariance_available: bool = Field(
+        default=False,
+        description="Whether 6x6 uncertainty covariance is available"
+    )
+    covariance_status: str = Field(
+        default="Not Available (Analytical TLE / SGP4)",
+        description="Status description for covariance"
+    )
+    confidence_score: float = Field(
+        ...,
+        ge=0.0,
+        le=100.0,
+        description="Unified numeric confidence score from 0.0 to 100.0 percent"
+    )
+    scoring_algorithm_version: str = Field(
+        default="1.0.0",
+        description="Version of DATA_QUALITY_SCORING algorithm used"
+    )
+

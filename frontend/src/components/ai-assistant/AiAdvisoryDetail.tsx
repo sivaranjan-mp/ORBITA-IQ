@@ -15,18 +15,22 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { OrbitDataQualityPanel } from "@/components/conjunctions/OrbitDataQualityPanel";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { AIManeuverAdvisory } from "@/types/aiAdvisory";
+import type { ConjunctionAlert } from "@/types/alert";
 
 interface AiAdvisoryDetailProps {
   advisory: AIManeuverAdvisory;
+  alert?: ConjunctionAlert;
   onRegenerate: () => Promise<unknown>;
   isRegenerating?: boolean;
 }
 
 export function AiAdvisoryDetail({
   advisory,
+  alert,
   onRegenerate,
   isRegenerating = false,
 }: AiAdvisoryDetailProps) {
@@ -106,6 +110,20 @@ export function AiAdvisoryDetail({
         </Button>
       </div>
 
+      {/* Orbit Data Quality & Freshness Assessment */}
+      {alert && (
+        <div className="rounded-md border border-border/60 bg-secondary/10 p-3">
+          <OrbitDataQualityPanel
+            primarySatelliteName={alert.primarySatellite}
+            primaryNoradId={alert.primaryNoradId}
+            secondaryObjectName={alert.secondaryObject}
+            secondaryNoradId={alert.secondaryNoradId}
+            primaryQuality={alert.primaryDataQuality}
+            secondaryQuality={alert.secondaryDataQuality}
+          />
+        </div>
+      )}
+
       {/* Qualitative Risk Summary */}
       <div className="rounded-md border border-border/60 bg-secondary/30 p-3.5">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-foreground">
@@ -116,6 +134,7 @@ export function AiAdvisoryDetail({
           {recommendation.qualitative_risk_summary}
         </p>
       </div>
+
 
       {/* Two Column Grid: Rationale & Timing Window */}
       <div className="grid gap-3 sm:grid-cols-2">

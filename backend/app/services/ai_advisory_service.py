@@ -22,6 +22,7 @@ from app.schemas.ai_advisory import (
     AdvisoryRecommendationContent,
     AIManeuverAdvisoryResponse,
 )
+from app.services.data_quality_service import DataQualityService
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +32,22 @@ Your role is to analyze orbital conjunction encounters between fleet satellites 
 CRITICAL SAFETY & ADVISORY CONSTRAINTS:
 1. STRICTLY ADVISORY: Your output is an advisory aid for operator situational awareness, NOT a certified Flight Dynamics System (FDS) maneuver solution.
 2. NO FALSE-PRECISION MATH: NEVER calculate or output exact delta-v (ΔV) numerical values (e.g., '1.42 m/s'), exact thruster firing durations down to seconds, or exact burn start timestamps. You do not possess calibrated thruster impulse curves, mass budgets, or high-fidelity covariance matrices.
-3. REASON QUALITATIVELY: Focus on the physical astrodynamics principles:
+3. REASON QUALITATIVELY: Focus on physical astrodynamics principles:
    - Encounter crossing geometry (e.g., head-on, co-planar overtake, polar cross-track, ascending/descending node crossing).
    - Relative velocity vectors and orbital regime implications (LEO drag, debris environment).
    - Maneuver strategy selection (e.g., In-Track Phasing via Prograde/Retrograde boost to accumulate secular drift, Out-of-Plane cross-track separation for nodal divergence, or Radial boost).
    - Optimal execution timing in terms of lead time and orbital periods (e.g., 12 to 24 hours prior to TCA, allowing 8-15 orbits for secular along-track displacement with minimal propellant).
    - Operational trade-offs (re-screening against catalog post-burn, tracking pass availability, propellant consumption considerations).
    - Verification checklist for the flight operations crew before execution.
+4. DATA QUALITY & UNCERTAINTY REASONING:
+   - You MUST analyze the attached `data_quality_assessment` for both primary and secondary objects.
+   - Note data age (hours elapsed since epoch), source authority (e.g., CelesTrak vs. unverified upload), and whether 6x6 covariance is available.
+   - When either object has LOW / UNRELIABLE data quality, age > 48h (in LEO) or > 96h (in GEO), or lacks calibrated covariance, you MUST explicitly cite this observational uncertainty in your `qualitative_risk_summary`, emphasize error bounds in B-plane geometry, and include verifying fresh sensor tracking / official Space Command CDMs in the `verification_checklist`.
 
 OUTPUT FORMAT:
 You MUST respond with ONLY a valid JSON object adhering precisely to this structure (no markdown formatting, no code fences, no extra text):
 {
-  "qualitative_risk_summary": "Plain English synthesis of the encounter geometry, relative velocity, and risk drivers.",
+  "qualitative_risk_summary": "Plain English synthesis of the encounter geometry, relative velocity, risk drivers, and data quality / freshness uncertainty observations.",
   "maneuver_strategy": "Name of qualitative strategy (e.g. 'In-Track Phasing (Prograde Altitude Boost)' or 'Out-of-Plane Cross-Track Separation')",
   "burn_direction_rationale": "Physical explanation of why this vector effectively mitigates collision risk at the node.",
   "optimal_timing_window": "Recommended execution lead-time in orbital revolutions and hours before TCA.",
@@ -52,14 +57,15 @@ You MUST respond with ONLY a valid JSON object adhering precisely to this struct
     "Tradeoff or operational consideration 3"
   ],
   "verification_checklist": [
-    "Verification step 1 (e.g., verify latest secondary object TLE age)",
+    "Verification step 1 (e.g., verify latest secondary object TLE age and request fresh radar pass)",
     "Verification step 2 (e.g., compute post-burn trajectory in certified FDS)",
     "Verification step 3 (e.g., execute secondary conjunction screening before thruster command upload)"
   ],
-  "confidence_assessment": "High qualitative confidence based on orbital regime geometry.",
+  "confidence_assessment": "Qualitative confidence assessment factoring in orbital regime and data freshness.",
   "disclaimer": "OPERATOR ADVISORY NOTICE: AI-generated orbital risk assessment and qualitative maneuver advisory for operator review only. This is not a certified flight-dynamics maneuver solution or precision ephemeris product. All tactical maneuvers must be verified using certified Astrodynamics Flight Dynamics System (FDS) tools and official Space Command CDMs prior to execution."
 }
 """
+
 
 GEMINI_RESPONSE_SCHEMA = {
     "type": "OBJECT",
@@ -211,10 +217,30 @@ class AIAdvisoryService:
             "risk_level": alert.risk_level,
         }
 
+        # 4. Data Quality & Freshness Assessment
+        pri_dq = await DataQualityService.evaluate_orbit_quality(
+            db=self.db,
+            norad_id=alert.satellite_a_norad_id,
+            satellite_id=alert.satellite_a_id,
+            explicit_now=now,
+        )
+        sec_dq = await DataQualityService.evaluate_orbit_quality(
+            db=self.db,
+            norad_id=alert.satellite_b_norad_id,
+            satellite_id=alert.satellite_b_id,
+            explicit_now=now,
+        )
+
+        data_quality_data = {
+            "primary_satellite": pri_dq.model_dump(mode="json"),
+            "secondary_object": sec_dq.model_dump(mode="json"),
+        }
+
         return {
             "conjunction": conjunction_data,
             "primary_satellite": primary_data,
             "secondary_object": secondary_data,
+            "data_quality_assessment": data_quality_data,
         }
 
     async def get_cached_advisory(self, alert_id: uuid.UUID) -> Optional[AIManeuverAdvisory]:

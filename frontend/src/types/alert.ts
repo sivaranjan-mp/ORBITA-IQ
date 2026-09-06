@@ -1,6 +1,25 @@
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type AlertStatus = "open" | "monitoring" | "resolved" | "dismissed" | "active" | "acknowledged";
 export type ScreeningScope = "fleet_vs_fleet" | "fleet_vs_catalog";
+export type DataQualityCategory = "HIGH" | "MEDIUM" | "LOW" | "UNRELIABLE";
+export type FreshnessTier = "FRESH" | "AGING" | "STALE" | "CRITICAL";
+
+export interface OrbitDataQualityBundle {
+  source: string;
+  source_code: string;
+  is_authoritative: boolean;
+  epoch: string;
+  ingestion_time: string;
+  age_hours: number;
+  freshness_tier: FreshnessTier | string;
+  propagation_model: string;
+  orbit_regime: string;
+  data_quality: DataQualityCategory | string;
+  covariance_available: boolean;
+  covariance_status: string;
+  confidence_score: number; // 0..100
+  scoring_algorithm_version: string;
+}
 
 export interface ConjunctionAlert {
   id: string;
@@ -19,7 +38,10 @@ export interface ConjunctionAlert {
   detectedBy: "satguard" | "cdm_upload" | "manual" | string;
   createdAt: string;
   computedAt?: string;
+  primaryDataQuality?: OrbitDataQualityBundle;
+  secondaryDataQuality?: OrbitDataQualityBundle;
 }
+
 
 export interface AlertStatusHistoryItem {
   id: string;
