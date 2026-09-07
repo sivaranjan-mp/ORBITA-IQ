@@ -98,8 +98,16 @@ def _format_history_item(
     )
 
 
+from app.services.probability_engine import ProbabilityEngine
+
 def _format_alert(alert) -> dict:
     if isinstance(alert, ConjunctionAlert):
+        hbr_a, hbr_a_known = ProbabilityEngine.resolve_hbr(
+            getattr(alert, "satellite_a", None), norad_id=getattr(alert, "satellite_a_norad_id", None)
+        )
+        hbr_b, hbr_b_known = ProbabilityEngine.resolve_hbr(
+            getattr(alert, "satellite_b", None), norad_id=getattr(alert, "satellite_b_norad_id", None)
+        )
         return {
             "id": str(alert.id),
             "primarySatellite": alert.satellite_a_name,
@@ -117,16 +125,29 @@ def _format_alert(alert) -> dict:
             "detectedBy": alert.detected_by,
             "createdAt": alert.created_at,
             "computedAt": alert.computed_at,
+            "hbrA": hbr_a,
+            "hbrAIsKnown": hbr_a_known,
+            "hbrB": hbr_b,
+            "hbrBIsKnown": hbr_b_known,
+            "combinedHbr": round(hbr_a + hbr_b, 2),
             "primaryDataQuality": None,
             "secondaryDataQuality": None,
         }
     else:
+        pri_norad = alert.conjunction_event.primary_norad_id if getattr(alert, "conjunction_event", None) else (alert.satellite_a.norad_id if getattr(alert, "satellite_a", None) else 0)
+        sec_norad = alert.conjunction_event.secondary_norad_id if getattr(alert, "conjunction_event", None) else (alert.satellite_b.norad_id if getattr(alert, "satellite_b", None) else 0)
+        hbr_a, hbr_a_known = ProbabilityEngine.resolve_hbr(
+            getattr(alert, "satellite_a", None), norad_id=pri_norad
+        )
+        hbr_b, hbr_b_known = ProbabilityEngine.resolve_hbr(
+            getattr(alert, "satellite_b", None), norad_id=sec_norad
+        )
         return {
             "id": str(alert.id),
             "primarySatellite": alert.conjunction_event.primary_satellite if getattr(alert, "conjunction_event", None) else (alert.satellite_a.name if getattr(alert, "satellite_a", None) else "Unknown"),
-            "primaryNoradId": alert.conjunction_event.primary_norad_id if getattr(alert, "conjunction_event", None) else (alert.satellite_a.norad_id if getattr(alert, "satellite_a", None) else 0),
+            "primaryNoradId": pri_norad,
             "secondaryObject": alert.conjunction_event.secondary_object if getattr(alert, "conjunction_event", None) else (alert.satellite_b.name if getattr(alert, "satellite_b", None) else "Unknown"),
-            "secondaryNoradId": alert.conjunction_event.secondary_norad_id if getattr(alert, "conjunction_event", None) else (alert.satellite_b.norad_id if getattr(alert, "satellite_b", None) else 0),
+            "secondaryNoradId": sec_norad,
             "tca": alert.time_of_closest_approach,
             "missDistanceM": alert.miss_distance,
             "missDistanceKm": alert.miss_distance / 1000.0,
@@ -138,6 +159,11 @@ def _format_alert(alert) -> dict:
             "detectedBy": alert.conjunction_event.detected_by if getattr(alert, "conjunction_event", None) else "satguard",
             "createdAt": alert.created_at,
             "computedAt": alert.created_at,
+            "hbrA": hbr_a,
+            "hbrAIsKnown": hbr_a_known,
+            "hbrB": hbr_b,
+            "hbrBIsKnown": hbr_b_known,
+            "combinedHbr": round(hbr_a + hbr_b, 2),
             "primaryDataQuality": None,
             "secondaryDataQuality": None,
         }

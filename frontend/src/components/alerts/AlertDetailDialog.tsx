@@ -114,17 +114,52 @@ export function AlertDetailDialog({
                 : "—"
             }
           />
-          <Row label="Collision Probability" value={formatProbability(alert.probability)} />
+          <Row label="Collision Probability (Pc)" value={formatProbability(alert.probability)} />
+          <Row
+            label="Combined Collision Disk (HBR)"
+            value={
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono font-semibold">
+                  {(alert.combinedHbr ?? 3.0).toFixed(1)} m
+                </span>
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  (HBR₁ + HBR₂)
+                </span>
+              </div>
+            }
+          />
 
           <Separator className="my-2" />
 
           <Row
             label="Primary Object"
-            value={`${alert.primarySatellite} (NORAD #${alert.primaryNoradId})`}
+            value={
+              <div className="flex flex-col items-end gap-1">
+                <span>{alert.primarySatellite} (NORAD #{alert.primaryNoradId})</span>
+                <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono ${
+                  alert.hbrAIsKnown
+                    ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                    : "bg-secondary text-muted-foreground border border-border"
+                }`}>
+                  HBR: {(alert.hbrA ?? 1.5).toFixed(1)} m {alert.hbrAIsKnown ? "• Measured / Known" : "• CARA Default (1.5 m)"}
+                </span>
+              </div>
+            }
           />
           <Row
             label="Secondary Object"
-            value={`${alert.secondaryObject} (NORAD #${alert.secondaryNoradId})`}
+            value={
+              <div className="flex flex-col items-end gap-1">
+                <span>{alert.secondaryObject} (NORAD #{alert.secondaryNoradId})</span>
+                <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono ${
+                  alert.hbrBIsKnown
+                    ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                    : "bg-secondary text-muted-foreground border border-border"
+                }`}>
+                  HBR: {(alert.hbrB ?? 1.5).toFixed(1)} m {alert.hbrBIsKnown ? "• Measured / Known" : "• CARA Default (1.5 m)"}
+                </span>
+              </div>
+            }
           />
 
           <Separator className="my-2" />

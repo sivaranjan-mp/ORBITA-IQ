@@ -321,9 +321,12 @@ class SatguardService:
                         if not risk_level:
                             continue
 
+                        hbr_a, hbr_b, combined_hbr, a_is_known, b_is_known = (
+                            ProbabilityEngine.combine_hbr(sat_a, sat_b)
+                        )
                         prob_res = ProbabilityEngine.calculate_probability(
                             miss_distance_m=refined_dist * 1000.0,
-                            hbr_m=20.0,
+                            hbr_m=combined_hbr,
                         )
                         pc = prob_res.get("pc", 0.0)
 

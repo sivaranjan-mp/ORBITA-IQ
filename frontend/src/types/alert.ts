@@ -38,6 +38,11 @@ export interface ConjunctionAlert {
   detectedBy: "satguard" | "cdm_upload" | "manual" | string;
   createdAt: string;
   computedAt?: string;
+  hbrA?: number;
+  hbrAIsKnown?: boolean;
+  hbrB?: number;
+  hbrBIsKnown?: boolean;
+  combinedHbr?: number;
   primaryDataQuality?: OrbitDataQualityBundle;
   secondaryDataQuality?: OrbitDataQualityBundle;
 }

@@ -1,12 +1,70 @@
+import math
 import numpy as np
 from scipy import integrate
-import math
+
+# NASA CARA documented convention: 1.5m default per unmeasured object
+DEFAULT_OBJECT_HBR_M: float = 1.5
+DEFAULT_COMBINED_HBR_M: float = 3.0
+
+# Curated known characteristic dimensions for select major spacecraft
+KNOWN_OBJECT_HBR_MAP: dict[int, float] = {
+    25544: 54.0,   # ISS (109m x 73m solar array span -> ~54m bounding radius)
+    20580: 6.6,    # Hubble Space Telescope (13.2m length -> ~6.6m radius)
+    48274: 10.0,   # Tiangong Space Station (~20m core module span -> ~10m radius)
+}
 
 
 class ProbabilityEngine:
     """
     Computes collision probability using established analytic methods.
     """
+
+    @staticmethod
+    def resolve_hbr(obj: object = None, norad_id: int | None = None) -> tuple[float, bool]:
+        """
+        Resolves the hard-body radius for an object (Satellite, CatalogSatellite, or dict).
+        Returns (hbr_m, is_known).
+        """
+        if obj is not None:
+            if isinstance(obj, dict):
+                val = obj.get("hard_body_radius_m")
+                nid = obj.get("norad_id") or norad_id
+            else:
+                val = getattr(obj, "hard_body_radius_m", None)
+                nid = getattr(obj, "norad_id", None) or norad_id
+
+            if val is not None:
+                try:
+                    f_val = float(val)
+                    if f_val > 0:
+                        return f_val, True
+                except (ValueError, TypeError):
+                    pass
+
+            if nid and nid in KNOWN_OBJECT_HBR_MAP:
+                return KNOWN_OBJECT_HBR_MAP[nid], True
+
+        if norad_id and norad_id in KNOWN_OBJECT_HBR_MAP:
+            return KNOWN_OBJECT_HBR_MAP[norad_id], True
+
+        return DEFAULT_OBJECT_HBR_M, False
+
+    @classmethod
+    def combine_hbr(
+        cls,
+        obj_a: object = None,
+        obj_b: object = None,
+        norad_a: int | None = None,
+        norad_b: int | None = None,
+    ) -> tuple[float, float, float, bool, bool]:
+        """
+        Computes combined HBR collision disk radius from two objects.
+        Returns (hbr_a, hbr_b, combined_hbr, a_is_known, b_is_known).
+        """
+        hbr_a, a_is_known = cls.resolve_hbr(obj_a, norad_a)
+        hbr_b, b_is_known = cls.resolve_hbr(obj_b, norad_b)
+        combined = hbr_a + hbr_b
+        return hbr_a, hbr_b, combined, a_is_known, b_is_known
 
     @staticmethod
     def foster_1992_pc(miss_vector: np.ndarray, covariance_2d: np.ndarray, hbr: float) -> float:
@@ -96,7 +154,7 @@ class ProbabilityEngine:
     @classmethod
     def calculate_probability(cls, miss_distance_m: float,
                               covariance_3d: np.ndarray = None,
-                              hbr_m: float = 20.0,
+                              hbr_m: float = DEFAULT_COMBINED_HBR_M,
                               miss_vector_2d: np.ndarray = None,
                               covariance_2d: np.ndarray = None) -> dict:
         """

@@ -21,6 +21,7 @@ class CatalogSatellite(Base):
     inclination_deg: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     period_minutes: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     eccentricity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    hard_body_radius_m: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     line1: Mapped[str] = mapped_column(String, nullable=False)
     line2: Mapped[str] = mapped_column(String, nullable=False)
     source_id: Mapped[Optional[uuid.UUID]] = mapped_column(

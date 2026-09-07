@@ -27,6 +27,11 @@ class ConjunctionAlertResponse(BaseModel):
     detectedBy: str = "satguard"
     createdAt: datetime
     computedAt: Optional[datetime] = None
+    hbrA: Optional[float] = 1.5
+    hbrAIsKnown: Optional[bool] = False
+    hbrB: Optional[float] = 1.5
+    hbrBIsKnown: Optional[bool] = False
+    combinedHbr: Optional[float] = 3.0
     primaryDataQuality: Optional[OrbitDataQualityBundle] = None
     secondaryDataQuality: Optional[OrbitDataQualityBundle] = None
 

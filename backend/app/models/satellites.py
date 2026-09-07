@@ -28,6 +28,7 @@ class Satellite(Base):
         default="active"
     )
     owner_org: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    hard_body_radius_m: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey('data_sources.id', ondelete='SET NULL'), nullable=True, index=True
     )
