@@ -1,7 +1,8 @@
 import logging
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, select
@@ -149,25 +150,38 @@ async def _format_alerts_with_quality(alerts: list, db: AsyncSession) -> list[di
     async def get_quality(norad_id: int, sat_id: Optional[Any] = None):
         cache_key = (norad_id, str(sat_id) if sat_id else None)
         if cache_key not in quality_cache:
-            bundle = await DataQualityService.evaluate_orbit_quality(
-                db=db, norad_id=norad_id, satellite_id=sat_id, explicit_now=now
-            )
+            try:
+                bundle = await DataQualityService.evaluate_orbit_quality(
+                    db=db, norad_id=norad_id, satellite_id=sat_id, explicit_now=now
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"Exception calculating data quality for NORAD {norad_id} (sat_id={sat_id}): {exc}. "
+                    "Degrading gracefully to insufficient data bundle."
+                )
+                bundle = DataQualityService.get_insufficient_data_bundle(norad_id=norad_id, explicit_now=now)
             quality_cache[cache_key] = bundle
         return quality_cache[cache_key]
 
     formatted_list = []
     for a in alerts:
         base_dict = _format_alert(a)
-        pri_norad = base_dict["primaryNoradId"]
-        sec_norad = base_dict["secondaryNoradId"]
+        pri_norad = base_dict.get("primaryNoradId") or 0
+        sec_norad = base_dict.get("secondaryNoradId") or 0
         pri_id = getattr(a, "satellite_a_id", None)
         sec_id = getattr(a, "satellite_b_id", None)
 
         try:
             base_dict["primaryDataQuality"] = await get_quality(pri_norad, pri_id)
+        except Exception as exc:
+            logger.warning(f"Could not compute primary data quality for NORAD {pri_norad}: {exc}")
+            base_dict["primaryDataQuality"] = DataQualityService.get_insufficient_data_bundle(pri_norad, explicit_now=now)
+
+        try:
             base_dict["secondaryDataQuality"] = await get_quality(sec_norad, sec_id)
         except Exception as exc:
-            logger.debug(f"Could not compute real-time orbit data quality for alert: {exc}")
+            logger.warning(f"Could not compute secondary data quality for NORAD {sec_norad}: {exc}")
+            base_dict["secondaryDataQuality"] = DataQualityService.get_insufficient_data_bundle(sec_norad, explicit_now=now)
 
         formatted_list.append(base_dict)
 

@@ -271,151 +271,223 @@ class DataQualityService:
         return ALGORITHM_VERSION, DEFAULT_SCORING_PARAMETERS
 
     @classmethod
+    def get_insufficient_data_bundle(
+        cls,
+        norad_id: Optional[int] = None,
+        explicit_now: Optional[datetime] = None,
+        reason: str = "Insufficient orbital elements or TLE records available",
+    ) -> OrbitDataQualityBundle:
+        """
+        Produces a well-formed degraded bundle for objects with missing/unresolved
+        orbital elements or unhandled runtime evaluation errors, ensuring pipeline resilience.
+        """
+        now = explicit_now or datetime.now(timezone.utc)
+        return OrbitDataQualityBundle(
+            source="Unknown / Insufficient Data",
+            source_code="UNKNOWN",
+            is_authoritative=False,
+            epoch=now,
+            ingestion_time=now,
+            age_hours=0.0,
+            freshness_tier="CRITICAL",
+            propagation_model="Unavailable / Insufficient Ephemeris",
+            orbit_regime="OTHER",
+            data_quality="UNRELIABLE",
+            covariance_available=False,
+            covariance_status="Not Available (Insufficient State Data)",
+            confidence_score=5.0,
+            scoring_algorithm_version=ALGORITHM_VERSION,
+        )
+
+    @classmethod
     async def evaluate_orbit_quality(
         cls,
         db: AsyncSession,
         norad_id: int,
-        satellite_id: Optional[uuid.UUID] = None,
+        satellite_id: Optional[Any] = None,
         explicit_now: Optional[datetime] = None,
     ) -> OrbitDataQualityBundle:
         """
         Primary evaluation entry point: queries database state for the given satellite or
         catalog object, computes real-time age, subscores, and produces the complete
-        8-field OrbitDataQualityBundle.
+        8-field OrbitDataQualityBundle. Degrades gracefully to an explicit insufficient data
+        bundle if records are missing, incomplete, or an unexpected error occurs.
         """
         now = explicit_now or datetime.now(timezone.utc)
-        alg_version, params = await cls.get_active_parameters(db)
+        try:
+            alg_version, params = await cls.get_active_parameters(db)
 
-        raw_source: Optional[str] = None
-        epoch: Optional[datetime] = None
-        ingestion_time: Optional[datetime] = None
-        orbit_regime: Optional[str] = None
-        eccentricity: Optional[float] = None
-        apogee_km: Optional[float] = None
-        perigee_km: Optional[float] = None
-        altitude_km: Optional[float] = None
-        line1: Optional[str] = None
-        line2: Optional[str] = None
+            raw_source: Optional[str] = None
+            epoch: Optional[datetime] = None
+            ingestion_time: Optional[datetime] = None
+            orbit_regime: Optional[str] = None
+            eccentricity: Optional[float] = None
+            apogee_km: Optional[float] = None
+            perigee_km: Optional[float] = None
+            altitude_km: Optional[float] = None
+            line1: Optional[str] = None
+            line2: Optional[str] = None
 
-        # 1. Attempt lookup as Fleet Satellite
-        primary_sat: Optional[Satellite] = None
-        if satellite_id:
-            sat_stmt = (
-                select(Satellite)
-                .where(Satellite.id == satellite_id)
-                .options(selectinload(Satellite.tle_records), selectinload(Satellite.orbit_state))
+            # Coerce satellite_id safely if string/invalid format
+            valid_sat_uuid: Optional[uuid.UUID] = None
+            if satellite_id:
+                try:
+                    if isinstance(satellite_id, uuid.UUID):
+                        valid_sat_uuid = satellite_id
+                    else:
+                        valid_sat_uuid = uuid.UUID(str(satellite_id))
+                except Exception:
+                    valid_sat_uuid = None
+
+            # 1. Attempt lookup as Fleet Satellite
+            primary_sat: Optional[Satellite] = None
+            if valid_sat_uuid:
+                try:
+                    sat_stmt = (
+                        select(Satellite)
+                        .where(Satellite.id == valid_sat_uuid)
+                        .options(selectinload(Satellite.tle_records), selectinload(Satellite.orbit_state))
+                    )
+                    sat_res = await db.execute(sat_stmt)
+                    primary_sat = sat_res.scalars().first()
+                except Exception as db_exc:
+                    logger.debug(f"Fleet satellite query by UUID {valid_sat_uuid} notice: {db_exc}")
+
+            if not primary_sat and norad_id:
+                try:
+                    sat_stmt = (
+                        select(Satellite)
+                        .where(Satellite.norad_id == norad_id)
+                        .options(selectinload(Satellite.tle_records), selectinload(Satellite.orbit_state))
+                    )
+                    sat_res = await db.execute(sat_stmt)
+                    primary_sat = sat_res.scalars().first()
+                except Exception as db_exc:
+                    logger.debug(f"Fleet satellite query by NORAD {norad_id} notice: {db_exc}")
+
+            if primary_sat:
+                tle_records = getattr(primary_sat, "tle_records", None)
+                if tle_records:
+                    valid_tles = [t for t in tle_records if getattr(t, "line1", None) and getattr(t, "line2", None)]
+                    if valid_tles:
+                        latest_tle = max(valid_tles, key=lambda t: getattr(t, "epoch", None) or getattr(t, "created_at", None) or now)
+                        raw_source = getattr(latest_tle, "source", None) or "celestrak"
+                        epoch = getattr(latest_tle, "epoch", None)
+                        ingestion_time = getattr(latest_tle, "created_at", None)
+                        line1 = getattr(latest_tle, "line1", None)
+                        line2 = getattr(latest_tle, "line2", None)
+
+                orbit_state = getattr(primary_sat, "orbit_state", None)
+                if orbit_state:
+                    eccentricity = getattr(orbit_state, "eccentricity", None)
+                    altitude_km = getattr(orbit_state, "altitude_km", None)
+                    if not epoch:
+                        epoch = getattr(orbit_state, "epoch", None)
+                    if not ingestion_time:
+                        ingestion_time = getattr(orbit_state, "created_at", None)
+
+            # 2. Attempt lookup in Catalog Satellite if epoch or source still missing
+            cat_sat: Optional[CatalogSatellite] = None
+            if (not epoch or not line1) and norad_id:
+                try:
+                    cat_stmt = select(CatalogSatellite).where(CatalogSatellite.norad_id == norad_id)
+                    cat_res = await db.execute(cat_stmt)
+                    cat_sat = cat_res.scalars().first()
+                    if cat_sat:
+                        raw_source = raw_source or getattr(cat_sat, "source", None) or "CELESTRAK"
+                        epoch = epoch or getattr(cat_sat, "epoch", None)
+                        ingestion_time = ingestion_time or getattr(cat_sat, "updated_at", None) or getattr(cat_sat, "created_at", None)
+                        orbit_regime = getattr(cat_sat, "orbit_regime", None)
+                        apogee_km = getattr(cat_sat, "apogee_km", None)
+                        perigee_km = getattr(cat_sat, "perigee_km", None)
+                        if eccentricity is None:
+                            eccentricity = getattr(cat_sat, "eccentricity", None)
+                        line1 = line1 or getattr(cat_sat, "line1", None)
+                        line2 = line2 or getattr(cat_sat, "line2", None)
+                except Exception as db_exc:
+                    logger.debug(f"Catalog query for NORAD {norad_id} notice: {db_exc}")
+
+            # 3. If no satellite or catalog record was found and no TLE/epoch exists:
+            if not primary_sat and not cat_sat and not line1 and not epoch:
+                logger.info(
+                    f"Insufficient orbit data for object NORAD {norad_id}. "
+                    "Returning explicit insufficient data bundle."
+                )
+                return cls.get_insufficient_data_bundle(norad_id=norad_id, explicit_now=now)
+
+            # Fallbacks if epoch or ingestion_time is missing on an existing record
+            if not epoch:
+                epoch = now
+            if not ingestion_time:
+                ingestion_time = now
+
+            # Ensure UTC timezone awareness
+            if epoch.tzinfo is None:
+                epoch = epoch.replace(tzinfo=timezone.utc)
+            if ingestion_time.tzinfo is None:
+                ingestion_time = ingestion_time.replace(tzinfo=timezone.utc)
+
+            # Compute age in hours
+            age_hours = max(0.0, (now - epoch).total_seconds() / 3600.0)
+
+            # Derive regime if not already explicitly set
+            if not orbit_regime or orbit_regime.upper() == "UNKNOWN":
+                orbit_regime = cls.derive_orbit_regime(
+                    apogee_km=apogee_km,
+                    perigee_km=perigee_km,
+                    eccentricity=eccentricity,
+                    altitude_km=altitude_km,
+                    line1=line1,
+                    line2=line2,
+                )
+
+            # Normalize source string
+            source_code, source_display, is_authoritative, source_score = cls.normalize_source(raw_source)
+
+            # Check covariance availability in database (currently unpopulated/false in live flow)
+            has_covariance = False
+            cov_score_val = params.get("covariance_scores", DEFAULT_SCORING_PARAMETERS["covariance_scores"])
+            covariance_score = int(cov_score_val.get("FULL_6X6", 100)) if has_covariance else int(cov_score_val.get("NONE", 20))
+            cov_status_text = (
+                "Available (6x6 Full Covariance)"
+                if has_covariance
+                else "Not Available (Analytical TLE / SGP4)"
             )
-            sat_res = await db.execute(sat_stmt)
-            primary_sat = sat_res.scalars().first()
 
-        if not primary_sat and norad_id:
-            sat_stmt = (
-                select(Satellite)
-                .where(Satellite.norad_id == norad_id)
-                .options(selectinload(Satellite.tle_records), selectinload(Satellite.orbit_state))
+            # Calculate freshness sub-score and tier
+            freshness_score, freshness_tier = cls.compute_freshness_subscore(
+                age_hours=age_hours, regime=orbit_regime, params=params
             )
-            sat_res = await db.execute(sat_stmt)
-            primary_sat = sat_res.scalars().first()
 
-        if primary_sat:
-            if primary_sat.tle_records:
-                latest_tle = max(primary_sat.tle_records, key=lambda t: t.epoch or t.created_at)
-                raw_source = latest_tle.source or "celestrak"
-                epoch = latest_tle.epoch
-                ingestion_time = latest_tle.created_at
-                line1 = latest_tle.line1
-                line2 = latest_tle.line2
-
-            if primary_sat.orbit_state:
-                eccentricity = primary_sat.orbit_state.eccentricity
-                altitude_km = primary_sat.orbit_state.altitude_km
-                if not epoch:
-                    epoch = primary_sat.orbit_state.epoch
-                if not ingestion_time:
-                    ingestion_time = primary_sat.orbit_state.created_at
-
-        # 2. Attempt lookup in Catalog Satellite if epoch or source still missing
-        if not epoch or not line1:
-            cat_stmt = select(CatalogSatellite).where(CatalogSatellite.norad_id == norad_id)
-            cat_res = await db.execute(cat_stmt)
-            cat_sat = cat_res.scalars().first()
-            if cat_sat:
-                raw_source = raw_source or "CELESTRAK"
-                epoch = epoch or cat_sat.epoch
-                ingestion_time = ingestion_time or (cat_sat.updated_at or cat_sat.created_at)
-                orbit_regime = cat_sat.orbit_regime
-                apogee_km = cat_sat.apogee_km
-                perigee_km = cat_sat.perigee_km
-                eccentricity = eccentricity if eccentricity is not None else cat_sat.eccentricity
-                line1 = line1 or cat_sat.line1
-                line2 = line2 or cat_sat.line2
-
-        # 3. Fallbacks if record is completely new or untracked
-        if not epoch:
-            epoch = now
-        if not ingestion_time:
-            ingestion_time = now
-
-        # Ensure UTC timezone awareness
-        if epoch.tzinfo is None:
-            epoch = epoch.replace(tzinfo=timezone.utc)
-        if ingestion_time.tzinfo is None:
-            ingestion_time = ingestion_time.replace(tzinfo=timezone.utc)
-
-        # Compute age in hours
-        age_hours = max(0.0, (now - epoch).total_seconds() / 3600.0)
-
-        # Derive regime if not already explicitly set
-        if not orbit_regime or orbit_regime.upper() == "UNKNOWN":
-            orbit_regime = cls.derive_orbit_regime(
-                apogee_km=apogee_km,
-                perigee_km=perigee_km,
+            # Calculate confidence score and quality category
+            confidence_score, data_quality = cls.compute_confidence_and_quality(
+                freshness_score=freshness_score,
+                source_score=source_score,
+                covariance_score=covariance_score,
                 eccentricity=eccentricity,
-                altitude_km=altitude_km,
-                line1=line1,
-                line2=line2,
+                params=params,
             )
 
-        # Normalize source string
-        source_code, source_display, is_authoritative, source_score = cls.normalize_source(raw_source)
+            return OrbitDataQualityBundle(
+                source=source_display,
+                source_code=source_code,
+                is_authoritative=is_authoritative,
+                epoch=epoch,
+                ingestion_time=ingestion_time,
+                age_hours=round(age_hours, 1),
+                freshness_tier=freshness_tier,
+                propagation_model="SGP4 (WGS84 General Perturbations)",
+                orbit_regime=orbit_regime,
+                data_quality=data_quality,
+                covariance_available=has_covariance,
+                covariance_status=cov_status_text,
+                confidence_score=confidence_score,
+                scoring_algorithm_version=alg_version,
+            )
 
-        # Check covariance availability in database (currently unpopulated/false in live flow)
-        has_covariance = False
-        cov_score_val = params.get("covariance_scores", DEFAULT_SCORING_PARAMETERS["covariance_scores"])
-        covariance_score = int(cov_score_val.get("FULL_6X6", 100)) if has_covariance else int(cov_score_val.get("NONE", 20))
-        cov_status_text = (
-            "Available (6x6 Full Covariance)"
-            if has_covariance
-            else "Not Available (Analytical TLE / SGP4)"
-        )
-
-        # Calculate freshness sub-score and tier
-        freshness_score, freshness_tier = cls.compute_freshness_subscore(
-            age_hours=age_hours, regime=orbit_regime, params=params
-        )
-
-        # Calculate confidence score and quality category
-        confidence_score, data_quality = cls.compute_confidence_and_quality(
-            freshness_score=freshness_score,
-            source_score=source_score,
-            covariance_score=covariance_score,
-            eccentricity=eccentricity,
-            params=params,
-        )
-
-        return OrbitDataQualityBundle(
-            source=source_display,
-            source_code=source_code,
-            is_authoritative=is_authoritative,
-            epoch=epoch,
-            ingestion_time=ingestion_time,
-            age_hours=round(age_hours, 1),
-            freshness_tier=freshness_tier,
-            propagation_model="SGP4 (WGS84 General Perturbations)",
-            orbit_regime=orbit_regime,
-            data_quality=data_quality,
-            covariance_available=has_covariance,
-            covariance_status=cov_status_text,
-            confidence_score=confidence_score,
-            scoring_algorithm_version=alg_version,
-        )
+        except Exception as exc:
+            logger.warning(
+                f"Unhandled exception in evaluate_orbit_quality for NORAD {norad_id}: {exc}. "
+                "Returning graceful insufficient data bundle."
+            )
+            return cls.get_insufficient_data_bundle(norad_id=norad_id, explicit_now=now)
