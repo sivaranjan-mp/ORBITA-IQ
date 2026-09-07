@@ -106,7 +106,7 @@ export function useAiAdvisory() {
           [alert.id]: data,
         }));
         return data;
-      } catch (err) {
+      } catch {
         // Fallback for simulated alerts / dev mode if backend endpoint hits simulated alert ID
         const fallback = buildLocalFallbackAdvisory(alert);
         setAdvisories((prev) => ({

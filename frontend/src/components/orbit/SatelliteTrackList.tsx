@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { Satellite, SatelliteStatus } from "@/types/satellite";
 
-export const SATELLITE_ORBIT_HEX: Record<string, string> = {
+const SATELLITE_ORBIT_HEX: Record<string, string> = {
   "sat-25544": "#00F2FE", // ISS (Zarya) - Electric Cyan
   "sat-20580": "#38BDF8", // Hubble Space Telescope - Sky Blue
   "sat-44713": "#818CF8", // Starlink-3011 - Electric Indigo
@@ -15,7 +15,7 @@ export const SATELLITE_ORBIT_HEX: Record<string, string> = {
   "sat-46984": "#C084FC", // Sentinel-6 - Bright Violet
 };
 
-export function getSatelliteHexColor(sat: Satellite): string {
+function getSatelliteHexColor(sat: Satellite): string {
   if (sat.status === "active") {
     return SATELLITE_ORBIT_HEX[sat.id] || "#00F2FE";
   }

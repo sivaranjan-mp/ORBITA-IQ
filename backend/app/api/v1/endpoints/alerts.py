@@ -108,6 +108,20 @@ def _format_alert(alert) -> dict:
         hbr_b, hbr_b_known = ProbabilityEngine.resolve_hbr(
             getattr(alert, "satellite_b", None), norad_id=getattr(alert, "satellite_b_norad_id", None)
         )
+        rel_pos = None
+        if alert.relative_position_x is not None:
+            rel_pos = [
+                float(alert.relative_position_x),
+                float(alert.relative_position_y or 0.0),
+                float(alert.relative_position_z or 0.0),
+            ]
+        rel_vel = None
+        if alert.relative_velocity_x is not None:
+            rel_vel = [
+                float(alert.relative_velocity_x),
+                float(alert.relative_velocity_y or 0.0),
+                float(alert.relative_velocity_z or 0.0),
+            ]
         return {
             "id": str(alert.id),
             "primarySatellite": alert.satellite_a_name,
@@ -132,6 +146,14 @@ def _format_alert(alert) -> dict:
             "combinedHbr": round(hbr_a + hbr_b, 2),
             "primaryDataQuality": None,
             "secondaryDataQuality": None,
+            "relativePosition": rel_pos,
+            "relativeVelocity": rel_vel,
+            "radialSeparationKm": alert.radial_separation_km,
+            "alongTrackSeparationKm": alert.along_track_separation_km,
+            "crossTrackSeparationKm": alert.cross_track_separation_km,
+            "relativeVelocityAngleDeg": alert.relative_velocity_angle_deg,
+            "relativeInclinationDeg": alert.relative_inclination_deg,
+            "encounterGeometry": alert.encounter_geometry,
         }
     else:
         pri_norad = alert.conjunction_event.primary_norad_id if getattr(alert, "conjunction_event", None) else (alert.satellite_a.norad_id if getattr(alert, "satellite_a", None) else 0)
@@ -335,11 +357,23 @@ async def seed_synthetic_conjunction(
         tca=tca_test,
         miss_distance_km=0.42,
         miss_distance_m=420.0,
-        relative_velocity_km_s=11.4,
+        relative_velocity_km_s=0.08,
         probability=0.00045,
         risk_level="critical",
         status="open",
         detected_by="satguard_synthetic_test",
+        relative_position_x=0.08,
+        relative_position_y=0.40,
+        relative_position_z=-0.08,
+        relative_velocity_x=0.001,
+        relative_velocity_y=-0.002,
+        relative_velocity_z=0.0005,
+        radial_separation_km=0.08,
+        along_track_separation_km=0.40,
+        cross_track_separation_km=-0.08,
+        relative_velocity_angle_deg=0.002,
+        relative_inclination_deg=0.001,
+        encounter_geometry="co-orbital",
         computed_at=now,
     )
     db.add(alert)
@@ -382,6 +416,18 @@ async def seed_mock_alerts(
             risk_level="critical",
             status="open",
             detected_by="satguard",
+            relative_position_x=0.12,
+            relative_position_y=0.28,
+            relative_position_z=-0.15,
+            relative_velocity_x=3.2,
+            relative_velocity_y=9.8,
+            relative_velocity_z=9.7,
+            radial_separation_km=0.12,
+            along_track_separation_km=0.28,
+            cross_track_separation_km=-0.15,
+            relative_velocity_angle_deg=92.4,
+            relative_inclination_deg=74.1,
+            encounter_geometry="crossing",
             computed_at=now,
         ),
         ConjunctionAlert(
@@ -398,6 +444,18 @@ async def seed_mock_alerts(
             risk_level="high",
             status="monitoring",
             detected_by="satguard",
+            relative_position_x=-0.25,
+            relative_position_y=0.95,
+            relative_position_z=0.52,
+            relative_velocity_x=4.1,
+            relative_velocity_y=7.2,
+            relative_velocity_z=9.8,
+            radial_separation_km=-0.25,
+            along_track_separation_km=0.95,
+            cross_track_separation_km=0.52,
+            relative_velocity_angle_deg=84.2,
+            relative_inclination_deg=58.7,
+            encounter_geometry="crossing",
             computed_at=now,
         ),
         ConjunctionAlert(
@@ -414,6 +472,18 @@ async def seed_mock_alerts(
             risk_level="medium",
             status="monitoring",
             detected_by="cdm_upload",
+            relative_position_x=0.82,
+            relative_position_y=2.45,
+            relative_position_z=-1.24,
+            relative_velocity_x=2.1,
+            relative_velocity_y=6.4,
+            relative_velocity_z=6.8,
+            radial_separation_km=0.82,
+            along_track_separation_km=2.45,
+            cross_track_separation_km=-1.24,
+            relative_velocity_angle_deg=67.8,
+            relative_inclination_deg=42.3,
+            encounter_geometry="crossing",
             computed_at=now,
         ),
         ConjunctionAlert(
@@ -430,6 +500,18 @@ async def seed_mock_alerts(
             risk_level="low",
             status="open",
             detected_by="satguard",
+            relative_position_x=4.2,
+            relative_position_y=28.1,
+            relative_position_z=15.6,
+            relative_velocity_x=1.8,
+            relative_velocity_y=5.2,
+            relative_velocity_z=4.9,
+            radial_separation_km=4.2,
+            along_track_separation_km=28.1,
+            cross_track_separation_km=15.6,
+            relative_velocity_angle_deg=52.1,
+            relative_inclination_deg=9.8,
+            encounter_geometry="crossing",
             computed_at=now,
         ),
     ]

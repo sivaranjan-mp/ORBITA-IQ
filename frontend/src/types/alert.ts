@@ -21,6 +21,8 @@ export interface OrbitDataQualityBundle {
   scoring_algorithm_version: string;
 }
 
+export type EncounterGeometry = "co-orbital" | "crossing" | "head-on" | string;
+
 export interface ConjunctionAlert {
   id: string;
   primarySatellite: string;
@@ -45,6 +47,18 @@ export interface ConjunctionAlert {
   combinedHbr?: number;
   primaryDataQuality?: OrbitDataQualityBundle;
   secondaryDataQuality?: OrbitDataQualityBundle;
+
+  // Relative state vectors & RIC frame decomposition
+  relativePosition?: [number, number, number];
+  relativeVelocity?: [number, number, number];
+  radialSeparationKm?: number;
+  alongTrackSeparationKm?: number;
+  crossTrackSeparationKm?: number;
+
+  // Encounter geometry
+  relativeVelocityAngleDeg?: number;
+  relativeInclinationDeg?: number;
+  encounterGeometry?: EncounterGeometry;
 }
 
 

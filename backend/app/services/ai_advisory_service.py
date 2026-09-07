@@ -32,8 +32,11 @@ Your role is to analyze orbital conjunction encounters between fleet satellites 
 CRITICAL SAFETY & ADVISORY CONSTRAINTS:
 1. STRICTLY ADVISORY: Your output is an advisory aid for operator situational awareness, NOT a certified Flight Dynamics System (FDS) maneuver solution.
 2. NO FALSE-PRECISION MATH: NEVER calculate or output exact delta-v (ΔV) numerical values (e.g., '1.42 m/s'), exact thruster firing durations down to seconds, or exact burn start timestamps. You do not possess calibrated thruster impulse curves, mass budgets, or high-fidelity covariance matrices.
-3. REASON QUALITATIVELY: Focus on physical astrodynamics principles:
-   - Encounter crossing geometry (e.g., head-on, co-planar overtake, polar cross-track, ascending/descending node crossing).
+3. REASON QUALITATIVELY: Focus on the physical astrodynamics principles:
+   - Encounter crossing geometry (e.g., co-orbital overtake, inclined crossing, polar cross-track, ascending/descending node crossing, head-on).
+   - RIC decomposition context: Leverage radial (ΔR), along-track (ΔI), and cross-track (ΔC) separations to ground the burn vector rationale:
+     * When along-track separation dominates or is minimal in a crossing encounter, an in-track phasing burn (prograde/retrograde semi-major axis boost) creates rapid secular displacement at the crossing node with maximum propellant efficiency.
+     * When cross-track separation is small in co-planar or co-orbital encounters, evaluate out-of-plane or altitude offset adjustments to establish positive clearance.
    - Relative velocity vectors and orbital regime implications (LEO drag, debris environment).
    - Maneuver strategy selection (e.g., In-Track Phasing via Prograde/Retrograde boost to accumulate secular drift, Out-of-Plane cross-track separation for nodal divergence, or Radial boost).
    - Optimal execution timing in terms of lead time and orbital periods (e.g., 12 to 24 hours prior to TCA, allowing 8-15 orbits for secular along-track displacement with minimal propellant).
@@ -215,6 +218,12 @@ class AIAdvisoryService:
             "relative_velocity_km_s": round(alert.relative_velocity_km_s or 10.5, 2),
             "collision_probability": alert.probability,
             "risk_level": alert.risk_level,
+            "radial_separation_km": round(alert.radial_separation_km, 3) if alert.radial_separation_km is not None else None,
+            "along_track_separation_km": round(alert.along_track_separation_km, 3) if alert.along_track_separation_km is not None else None,
+            "cross_track_separation_km": round(alert.cross_track_separation_km, 3) if alert.cross_track_separation_km is not None else None,
+            "relative_velocity_angle_deg": round(alert.relative_velocity_angle_deg, 2) if alert.relative_velocity_angle_deg is not None else None,
+            "relative_inclination_deg": round(alert.relative_inclination_deg, 2) if alert.relative_inclination_deg is not None else None,
+            "encounter_geometry": alert.encounter_geometry or "crossing",
         }
 
         # 4. Data Quality & Freshness Assessment
@@ -301,20 +310,48 @@ class AIAdvisoryService:
         s_name = sec["name"]
         period = prim.get("period_minutes", 96.0)
 
-        # Astrodynamics strategy heuristic:
-        if rel_vel > 11.0:
+        # Astrodynamics strategy heuristic incorporating RIC decomposition & encounter geometry:
+        enc_geom = conj.get("encounter_geometry", "crossing")
+        along_track = conj.get("along_track_separation_km")
+        cross_track = conj.get("cross_track_separation_km")
+        radial = conj.get("radial_separation_km")
+        vel_angle = conj.get("relative_velocity_angle_deg")
+        inc_angle = conj.get("relative_inclination_deg")
+
+        ric_detail = ""
+        if along_track is not None and cross_track is not None and radial is not None:
+            ric_detail = f" [RIC Decomposition: Radial ΔR={radial:+.3f} km, Along-track ΔI={along_track:+.3f} km, Cross-track ΔC={cross_track:+.3f} km]."
+
+        if enc_geom == "co-orbital":
+            strategy = "In-Track Phasing (Co-Orbital Secular Drift Shift)"
+            direction_rationale = (
+                f"For this co-orbital encounter (relative velocity angle: {vel_angle or 0.0:.2f}°, relative plane inclination: {inc_angle or 0.0:.2f}°, "
+                f"relative speed: {rel_vel:.2f} km/s), objects share closely aligned orbital tracks{ric_detail} "
+                f"An in-track prograde burn raises semi-major axis by a fraction of a kilometer, lengthening orbital period ({period:.1f} min) "
+                f"to accumulate progressive along-track spacing on each revolution without creating secondary plane crossing hazards."
+            )
+            timing_window = f"Execute 18 to 36 hours prior to TCA (~10 to 22 orbital revolutions prior) to accumulate required along-track clearance buffer."
+        elif enc_geom == "head-on":
+            strategy = "Out-of-Plane Cross-Track & Radial Deflection"
+            direction_rationale = (
+                f"Encounter is near head-on with high relative velocity ({rel_vel:.1f} km/s, velocity angle: {vel_angle or 180.0:.1f}°){ric_detail} "
+                f"In head-on geometry, along-track adjustments do not eliminate the collision corridor. An out-of-plane cross-track or radial burn "
+                f"shifts the collision plane laterally to establish immediate geometric clearance perpendicular to the encounter velocity vector."
+            )
+            timing_window = f"Execute 12 to 24 hours prior to TCA (~8 to 15 orbital revolutions prior) to ensure orbital nodal divergence."
+        elif rel_vel > 10.0:
             strategy = "In-Track Phasing (Prograde Semi-Major Axis Boost)"
             direction_rationale = (
-                f"Due to the high relative velocity ({rel_vel:.1f} km/s) and cross-orbit intersection angle, "
-                f"an in-track prograde burn will increase the semi-major axis of {p_name}, slightly lengthening its orbital period ({period:.1f} min). "
-                f"This creates secular along-track timing separation at the orbital crossing point without the excessive propellant cost of a direct plane change."
+                f"Due to the crossing geometry (relative inclination: {inc_angle or 0.0:.1f}°, velocity angle: {vel_angle or 0.0:.1f}°) and high relative velocity ({rel_vel:.1f} km/s){ric_detail} "
+                f"an in-track prograde burn alters the orbital period of {p_name} ({period:.1f} min). "
+                f"This creates secular along-track timing separation at the orbital crossing point with high propellant efficiency compared to an out-of-plane plane change."
             )
             timing_revs = max(8, min(24, int(hours_tca * 60 / period / 2)))
             timing_window = f"Execute approximately {max(12, int(hours_tca * 0.4))} to {max(18, int(hours_tca * 0.7))} hours prior to TCA (~{timing_revs} orbital revolutions before encounter) to maximize along-track displacement with minimal propellant expenditure."
         elif miss_km < 1.0:
             strategy = "Radial Separation & In-Track Phasing Combination"
             direction_rationale = (
-                f"With an ultra-close predicted miss distance of {conj['miss_distance_m']:.0f} m, "
+                f"With an ultra-close predicted miss distance of {conj['miss_distance_m']:.0f} m{ric_detail} "
                 f"a combined prograde and radial vector establishes rapid geometry separation both along-track and in altitude, "
                 f"ensuring immediate clearance of the {s_name} 3D error covariance ellipsoid."
             )
@@ -322,16 +359,16 @@ class AIAdvisoryService:
         else:
             strategy = "In-Track Phasing (Retrograde Phase-Shift)"
             direction_rationale = (
-                f"A retrograde in-track burn lowers orbital period slightly, advancing {p_name}'s arrival time at the intersection node. "
+                f"A retrograde in-track burn lowers orbital period slightly, advancing {p_name}'s arrival time at the intersection node{ric_detail} "
                 f"This cleanly separates the encounter geometry with {s_name} while keeping apogee within nominal operational bounds."
             )
             timing_window = f"Execute 18 to 36 hours prior to TCA (~12 to 25 orbital periods prior) to achieve safe nodal spacing."
 
         summary = (
-            f"[{risk} CONJUNCTION RISK] {p_name} (NORAD #{prim['norad_id']}) has a projected close approach "
+            f"[{risk} CONJUNCTION RISK - {enc_geom.upper()} ENCOUNTER] {p_name} (NORAD #{prim['norad_id']}) has a projected close approach "
             f"with {s_name} (NORAD #{sec['norad_id']}) in {days_tca:.1f} days ({hours_tca:.1f} hours). "
             f"The encounter features a miss distance of {miss_km:.2f} km ({conj['miss_distance_m']:.0f} m) "
-            f"at a relative velocity of {rel_vel:.2f} km/s in {prim['orbit_regime']} orbit."
+            f"at a relative velocity of {rel_vel:.2f} km/s in {prim['orbit_regime']} orbit{ric_detail}."
         )
 
         tradeoffs = [

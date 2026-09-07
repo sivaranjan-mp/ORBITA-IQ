@@ -8,9 +8,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
 from app.models.enums import AlertState, ConjunctionStatus, RiskLevel
+from app.models.ai_advisory import AIManeuverAdvisory
 
 if TYPE_CHECKING:
-    from app.models.ai_advisory import AIManeuverAdvisory
     from app.models.conjunctions import ConjunctionEvent
     from app.models.satellites import Satellite
 
@@ -47,6 +47,24 @@ class ConjunctionAlert(Base):
     miss_distance_m: Mapped[float] = mapped_column(Float, nullable=False)
     relative_velocity_km_s: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     probability: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    # Relative state vectors (secondary - primary) in TEME frame (km and km/s)
+    relative_position_x: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    relative_position_y: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    relative_position_z: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    relative_velocity_x: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    relative_velocity_y: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    relative_velocity_z: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # RIC frame separation components (km)
+    radial_separation_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    along_track_separation_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cross_track_separation_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Encounter geometry angles and derived label
+    relative_velocity_angle_deg: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    relative_inclination_deg: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    encounter_geometry: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     risk_level: Mapped[str] = mapped_column(
         ENUM(RiskLevel, name="risk_level", create_type=False, values_callable=lambda x: [e.value for e in x]),

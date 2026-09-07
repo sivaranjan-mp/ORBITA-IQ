@@ -60,9 +60,24 @@ print(f"Miss Distance:       {refined_dist_km:.4f} km ({refined_dist_km * 1000.0
 print(f"Relative Velocity:   {rel_vel:.2f} km/s")
 print(f"Collision Prob (Pc): {prob_res['pc']:.2e}")
 print(f"Classified Risk:     {risk_level.upper()}")
+
+from app.services.relative_geometry import compute_relative_geometry
+geom = compute_relative_geometry(r1_vec, v1_vec, r2_vec, v2_vec)
+print(f"Encounter Geometry:  {geom.encounter_geometry.upper()}")
+print(f"Relative Velocity Angle: {geom.relative_velocity_angle_deg:.2f} deg")
+print(f"Relative Inclination:    {geom.relative_inclination_deg:.2f} deg")
+print(f"Radial Separation:   {geom.radial_separation_km:.4f} km")
+print(f"In-Track Separation: {geom.along_track_separation_km:.4f} km")
+print(f"Cross-Track Separation: {geom.cross_track_separation_km:.4f} km")
+
+ric_norm = np.sqrt(geom.radial_separation_km**2 + geom.along_track_separation_km**2 + geom.cross_track_separation_km**2)
+print(f"RIC Euclidean Norm:  {ric_norm:.4f} km (Matches Miss Dist: {abs(ric_norm - refined_dist_km) < 1e-4})")
+
 assert refined_dist_km < 1.0, "Expected miss distance under 1 km"
 assert risk_level == "critical", "Expected Critical risk level"
-print("=> SYNTHETIC SEED DETECTION VERIFIED: Detected as CRITICAL (< 1 km) as expected!\n")
+assert geom.encounter_geometry == "co-orbital", "Expected co-orbital geometry for synthetic pair"
+assert abs(ric_norm - refined_dist_km) < 1e-4, "RIC norm must match miss distance"
+print("=> SYNTHETIC SEED DETECTION & RIC DECOMPOSITION VERIFIED: Detected as CRITICAL (< 1 km), co-orbital, with exact RIC Pythagorean reconstruction!\n")
 
 
 print("==================================================================")

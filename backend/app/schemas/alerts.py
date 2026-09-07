@@ -34,6 +34,14 @@ class ConjunctionAlertResponse(BaseModel):
     combinedHbr: Optional[float] = 3.0
     primaryDataQuality: Optional[OrbitDataQualityBundle] = None
     secondaryDataQuality: Optional[OrbitDataQualityBundle] = None
+    relativePosition: Optional[list[float]] = None
+    relativeVelocity: Optional[list[float]] = None
+    radialSeparationKm: Optional[float] = None
+    alongTrackSeparationKm: Optional[float] = None
+    crossTrackSeparationKm: Optional[float] = None
+    relativeVelocityAngleDeg: Optional[float] = None
+    relativeInclinationDeg: Optional[float] = None
+    encounterGeometry: Optional[str] = None
 
 
 class ScreeningRunResponse(BaseModel):

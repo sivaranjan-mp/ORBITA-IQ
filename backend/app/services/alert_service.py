@@ -43,6 +43,23 @@ class AlertService:
         created_alerts = []
         for item in SIMULATED_COLLISION_DATA:
             tca_time = now + timedelta(days=item["days"])
+            miss_km = item["miss_km"]
+            vel_kms = item["vel_kms"]
+
+            # Compute physically consistent RIC decomposition: miss_km^2 = R^2 + I^2 + C^2
+            radial_km = round(miss_km * 0.22, 3)
+            along_track_km = round(miss_km * 0.88, 3)
+            cross_sq = max(0.0, miss_km ** 2 - radial_km ** 2 - along_track_km ** 2)
+            cross_track_km = round(cross_sq ** 0.5, 3)
+
+            vel_angle = round(min(179.0, max(2.0, vel_kms * 6.8)), 1)
+            inc_angle = round(min(90.0, max(0.5, vel_kms * 4.5)), 1)
+            enc_geom = (
+                "co-orbital"
+                if (vel_kms < 2.0 and inc_angle < 5.0)
+                else ("head-on" if vel_angle >= 135.0 else "crossing")
+            )
+
             alert = ConjunctionAlert(
                 id=uuid.uuid4(),
                 satellite_a_norad_id=item["a_norad"],
@@ -51,13 +68,25 @@ class AlertService:
                 satellite_b_name=item["b_name"],
                 screening_scope=item["scope"],
                 tca=tca_time,
-                miss_distance_km=item["miss_km"],
-                miss_distance_m=item["miss_km"] * 1000.0,
-                relative_velocity_km_s=item["vel_kms"],
+                miss_distance_km=miss_km,
+                miss_distance_m=miss_km * 1000.0,
+                relative_velocity_km_s=vel_kms,
                 probability=item["pc"],
                 risk_level=item["risk"],
                 status=item["status"],
                 detected_by="satguard_simulated",
+                relative_position_x=radial_km,
+                relative_position_y=along_track_km,
+                relative_position_z=cross_track_km,
+                relative_velocity_x=round(vel_kms * 0.15, 2),
+                relative_velocity_y=round(vel_kms * 0.75, 2),
+                relative_velocity_z=round(vel_kms * 0.64, 2),
+                radial_separation_km=radial_km,
+                along_track_separation_km=along_track_km,
+                cross_track_separation_km=cross_track_km,
+                relative_velocity_angle_deg=vel_angle,
+                relative_inclination_deg=inc_angle,
+                encounter_geometry=enc_geom,
                 computed_at=now,
                 created_at=now,
             )

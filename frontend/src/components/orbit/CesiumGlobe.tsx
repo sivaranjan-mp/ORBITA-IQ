@@ -24,7 +24,7 @@ const WGS84_INV_A = 1.0 / 6378137.0;
 const WGS84_INV_B = 1.0 / 6378137.0;
 const WGS84_INV_C = 1.0 / 6356752.3142;
 
-export function isPointVisibleFromCamera(
+function isPointVisibleFromCamera(
   cameraPos: Cesium.Cartesian3,
   targetPos: Cesium.Cartesian3
 ): boolean {
@@ -62,7 +62,7 @@ export function isPointVisibleFromCamera(
 const TRACKING_COLOR = Cesium.Color.fromCssColorString("#FFE600");
 
 // High-contrast status color coding
-export const STATUS_COLOR: Record<SatelliteStatus, Cesium.Color> = {
+const STATUS_COLOR: Record<SatelliteStatus, Cesium.Color> = {
   active: Cesium.Color.fromCssColorString("#00F2FE"),   // Electric Neon Cyan for active operational moving satellites
   degraded: Cesium.Color.fromCssColorString("#FB923C"), // Safety Warning Orange for degraded satellites
   inactive: Cesium.Color.fromCssColorString("#94A3B8"), // Cold Steel Slate for inactive / derelict satellites
@@ -70,7 +70,7 @@ export const STATUS_COLOR: Record<SatelliteStatus, Cesium.Color> = {
 };
 
 // Dedicated identifiable color per active satellite so each moving orbit is visually distinct
-export const ACTIVE_SATELLITE_ORBIT_COLORS: Record<string, Cesium.Color> = {
+const ACTIVE_SATELLITE_ORBIT_COLORS: Record<string, Cesium.Color> = {
   "sat-25544": Cesium.Color.fromCssColorString("#00F2FE"), // ISS: Electric Cyan
   "sat-20580": Cesium.Color.fromCssColorString("#38BDF8"), // Hubble: Sky Blue
   "sat-44713": Cesium.Color.fromCssColorString("#818CF8"), // Starlink: Electric Indigo
@@ -91,7 +91,7 @@ const ACTIVE_FALLBACK_PALETTE = [
   Cesium.Color.fromCssColorString("#34D399"),
 ];
 
-export function getSatelliteColor(sat: Satellite, isFocused = false): Cesium.Color {
+function getSatelliteColor(sat: Satellite, isFocused = false): Cesium.Color {
   if (isFocused) return TRACKING_COLOR;
   if (sat.status === "active") {
     return (
@@ -102,7 +102,7 @@ export function getSatelliteColor(sat: Satellite, isFocused = false): Cesium.Col
   return STATUS_COLOR[sat.status] || STATUS_COLOR.active;
 }
 
-export function getSatelliteOrbitStyle(
+function getSatelliteOrbitStyle(
   sat: Satellite,
   isFocused = false
 ): { color: Cesium.Color; width: number } {

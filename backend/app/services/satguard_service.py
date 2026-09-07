@@ -27,6 +27,7 @@ from app.models.enums import AlertState, ConjunctionStatus, RiskLevel, Satellite
 from app.models.satellites import Satellite
 from app.services.conjunction_engine import ConjunctionEngine
 from app.services.probability_engine import ProbabilityEngine
+from app.services.relative_geometry import compute_relative_geometry
 from app.services.risk_explanation_engine import RiskExplanationEngine
 
 logger = logging.getLogger(__name__)
@@ -330,6 +331,9 @@ class SatguardService:
                         )
                         pc = prob_res.get("pc", 0.0)
 
+                        # Compute authoritative relative state, RIC decomposition, and encounter geometry
+                        geom = compute_relative_geometry(r1_vec, v1_vec, r2_vec, v2_vec)
+
                         detected_alerts.append({
                             "sat_a": sat_a,
                             "sat_b": sat_b,
@@ -337,9 +341,21 @@ class SatguardService:
                             "tca": tca,
                             "miss_distance_km": refined_dist,
                             "miss_distance_m": refined_dist * 1000.0,
-                            "relative_velocity_km_s": rel_vel or 0.0,
+                            "relative_velocity_km_s": geom.relative_speed_km_s,
                             "probability": pc,
                             "risk_level": risk_level,
+                            "relative_position_x": float(geom.relative_position_km[0]),
+                            "relative_position_y": float(geom.relative_position_km[1]),
+                            "relative_position_z": float(geom.relative_position_km[2]),
+                            "relative_velocity_x": float(geom.relative_velocity_km_s[0]),
+                            "relative_velocity_y": float(geom.relative_velocity_km_s[1]),
+                            "relative_velocity_z": float(geom.relative_velocity_km_s[2]),
+                            "radial_separation_km": geom.radial_separation_km,
+                            "along_track_separation_km": geom.along_track_separation_km,
+                            "cross_track_separation_km": geom.cross_track_separation_km,
+                            "relative_velocity_angle_deg": geom.relative_velocity_angle_deg,
+                            "relative_inclination_deg": geom.relative_inclination_deg,
+                            "encounter_geometry": geom.encounter_geometry,
                         })
 
         # Deduplicate and Persist Alerts into conjunction_alerts
@@ -366,6 +382,18 @@ class SatguardService:
                 existing_alert.probability = alert_data["probability"]
                 existing_alert.risk_level = alert_data["risk_level"]
                 existing_alert.screening_scope = alert_data["scope"]
+                existing_alert.relative_position_x = alert_data["relative_position_x"]
+                existing_alert.relative_position_y = alert_data["relative_position_y"]
+                existing_alert.relative_position_z = alert_data["relative_position_z"]
+                existing_alert.relative_velocity_x = alert_data["relative_velocity_x"]
+                existing_alert.relative_velocity_y = alert_data["relative_velocity_y"]
+                existing_alert.relative_velocity_z = alert_data["relative_velocity_z"]
+                existing_alert.radial_separation_km = alert_data["radial_separation_km"]
+                existing_alert.along_track_separation_km = alert_data["along_track_separation_km"]
+                existing_alert.cross_track_separation_km = alert_data["cross_track_separation_km"]
+                existing_alert.relative_velocity_angle_deg = alert_data["relative_velocity_angle_deg"]
+                existing_alert.relative_inclination_deg = alert_data["relative_inclination_deg"]
+                existing_alert.encounter_geometry = alert_data["encounter_geometry"]
                 existing_alert.computed_at = now
             else:
                 new_alert = ConjunctionAlert(
@@ -383,6 +411,18 @@ class SatguardService:
                     risk_level=alert_data["risk_level"],
                     status="open",
                     detected_by="satguard",
+                    relative_position_x=alert_data["relative_position_x"],
+                    relative_position_y=alert_data["relative_position_y"],
+                    relative_position_z=alert_data["relative_position_z"],
+                    relative_velocity_x=alert_data["relative_velocity_x"],
+                    relative_velocity_y=alert_data["relative_velocity_y"],
+                    relative_velocity_z=alert_data["relative_velocity_z"],
+                    radial_separation_km=alert_data["radial_separation_km"],
+                    along_track_separation_km=alert_data["along_track_separation_km"],
+                    cross_track_separation_km=alert_data["cross_track_separation_km"],
+                    relative_velocity_angle_deg=alert_data["relative_velocity_angle_deg"],
+                    relative_inclination_deg=alert_data["relative_inclination_deg"],
+                    encounter_geometry=alert_data["encounter_geometry"],
                     computed_at=now,
                 )
                 self.db.add(new_alert)

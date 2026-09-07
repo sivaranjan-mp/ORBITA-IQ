@@ -310,6 +310,22 @@ export function generateSimulatedAlerts(): ConjunctionAlert[] {
     const tcaTimestamp = now + item.daysOffset * 86_400_000;
     const tcaIso = new Date(tcaTimestamp).toISOString();
 
+    const missKm = item.missDistanceKm;
+    const velKms = item.relativeVelocityKmS;
+    const radialKm = parseFloat((missKm * 0.22).toFixed(3));
+    const alongTrackKm = parseFloat((missKm * 0.88).toFixed(3));
+    const crossSq = Math.max(0, missKm ** 2 - radialKm ** 2 - alongTrackKm ** 2);
+    const crossTrackKm = parseFloat(Math.sqrt(crossSq).toFixed(3));
+
+    const velAngle = parseFloat(Math.min(179.0, Math.max(2.0, velKms * 6.8)).toFixed(1));
+    const incAngle = parseFloat(Math.min(90.0, Math.max(0.5, velKms * 4.5)).toFixed(1));
+    const encGeom =
+      velKms < 2.0 && incAngle < 5.0
+        ? "co-orbital"
+        : velAngle >= 135.0
+        ? "head-on"
+        : "crossing";
+
     return {
       id: item.id,
       primarySatellite: item.primarySatellite,
@@ -327,6 +343,18 @@ export function generateSimulatedAlerts(): ConjunctionAlert[] {
       detectedBy: "satguard_simulated",
       createdAt: createdDate,
       computedAt: createdDate,
+      relativePosition: [radialKm, alongTrackKm, crossTrackKm],
+      relativeVelocity: [
+        parseFloat((velKms * 0.15).toFixed(2)),
+        parseFloat((velKms * 0.75).toFixed(2)),
+        parseFloat((velKms * 0.64).toFixed(2)),
+      ],
+      radialSeparationKm: radialKm,
+      alongTrackSeparationKm: alongTrackKm,
+      crossTrackSeparationKm: crossTrackKm,
+      relativeVelocityAngleDeg: velAngle,
+      relativeInclinationDeg: incAngle,
+      encounterGeometry: encGeom,
     };
   });
 }
