@@ -12,9 +12,8 @@ export const apiClient = axios.create({ baseURL });
 
 // Attach the current Supabase access token to every outgoing request.
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
-  const isBypass = import.meta.env.DEV && import.meta.env.VITE_DISABLE_LOGIN === 'true';
   const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token || (isBypass ? "dev-bypass" : undefined);
+  const token = data.session?.access_token;
   if (token) {
     config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;

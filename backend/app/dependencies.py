@@ -28,17 +28,6 @@ async def get_current_user(
 ) -> UserProfile:
     token = credentials.credentials
 
-    if token in ("dev-bypass", "dev-bypass-token"):
-        return UserProfile(
-            id="00000000-0000-0000-0000-000000000000",
-            employee_id="DEV-001",
-            full_name="Development Admin",
-            role="admin",
-            department="Operations",
-            is_active=True,
-            last_login_at=None,
-        )
-
     try:
         payload = decode_access_token(token)
     except TokenError as e:
