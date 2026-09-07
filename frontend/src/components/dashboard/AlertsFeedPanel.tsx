@@ -29,15 +29,14 @@ export function AlertsFeedPanel() {
         </Link>
       </CardHeader>
       <CardContent className="space-y-1">
-        {isLoading &&
+        {isLoading && feed.length === 0 &&
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
 
         {!isLoading && feed.length === 0 && (
           <p className="py-6 text-center text-sm text-muted-foreground">No active conjunctions.</p>
         )}
 
-        {!isLoading &&
-          feed.map((alert) => {
+        {feed.map((alert) => {
             const isFleetVsFleet = alert.screeningScope === "fleet_vs_fleet";
             const missKm = alert.missDistanceKm ?? (alert.missDistanceM / 1000.0);
             return (

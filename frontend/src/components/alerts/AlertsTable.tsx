@@ -148,7 +148,7 @@ export function AlertsTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading &&
+            {isLoading && filtered.length === 0 &&
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
                   <TableCell colSpan={8}>
@@ -171,8 +171,7 @@ export function AlertsTable() {
               </TableRow>
             )}
 
-            {!isLoading &&
-              filtered.map((alert, index) => {
+            {filtered.map((alert, index) => {
                 const isFleetVsFleet = alert.screeningScope === "fleet_vs_fleet";
                 const missKm = alert.missDistanceKm ?? (alert.missDistanceM / 1000.0);
                 const horizonBadge = formatTcaHorizon(alert.tca);

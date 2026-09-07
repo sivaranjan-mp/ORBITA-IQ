@@ -306,6 +306,7 @@ class DataQualityService:
         norad_id: int,
         satellite_id: Optional[Any] = None,
         explicit_now: Optional[datetime] = None,
+        allow_live_fetch: bool = False,
     ) -> OrbitDataQualityBundle:
         """
         Primary evaluation entry point: queries database state for the given satellite or
@@ -407,9 +408,9 @@ class DataQualityService:
                 except Exception as db_exc:
                     logger.debug(f"Catalog query for NORAD {norad_id} notice: {db_exc}")
 
-            # 2b. Attempt live CelesTrak TLE lookup fallback if object not present in local DB
+            # 2b. Attempt live CelesTrak TLE lookup fallback if object not present in local DB (only if allow_live_fetch is enabled)
             celestrak_lookup_reason: Optional[str] = None
-            if (not epoch or not line1) and norad_id:
+            if allow_live_fetch and (not epoch or not line1) and norad_id:
                 try:
                     from app.services.celestrak_service import fetch_tle_by_norad_id
                     from app.services.tle_parser import parse_tle
@@ -454,8 +455,8 @@ class DataQualityService:
             # 3. If no satellite or catalog record was found and no TLE/epoch exists:
             if not primary_sat and not cat_sat and not line1 and not epoch:
                 specific_reason = (
-                    f"No matching row in fleet satellites or catalog_satellites for NORAD {norad_id}, "
-                    f"and live CelesTrak query failed ({celestrak_lookup_reason or 'No TLE returned'})"
+                    f"No matching row in fleet satellites or catalog_satellites for NORAD {norad_id}"
+                    + (f", and live CelesTrak query failed ({celestrak_lookup_reason or 'No TLE returned'})" if allow_live_fetch else "")
                 )
                 logger.info(
                     f"Insufficient orbit data for object NORAD {norad_id}: {specific_reason}. "

@@ -46,7 +46,7 @@ async function executeFetchAlerts(force = false): Promise<ConjunctionAlert[]> {
 
   inFlightRequest = (async () => {
     try {
-      const { data } = await apiClient.get<ConjunctionAlert[]>("/alerts");
+      const { data } = await apiClient.get<ConjunctionAlert[]>("/alerts", { timeout: 10000 });
       failureCount = 0; // Reset error count on successful response
 
       let resultAlerts: ConjunctionAlert[];
@@ -95,7 +95,9 @@ export function useAlerts() {
   }, []);
 
   const fetchAlerts = useCallback(async (showLoading = false, force = false) => {
-    if (showLoading) setIsLoading(true);
+    if (showLoading && (!cachedAlerts || cachedAlerts.length === 0)) {
+      setIsLoading(true);
+    }
     try {
       const data = await executeFetchAlerts(force);
       setAlerts(data);
@@ -103,7 +105,7 @@ export function useAlerts() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch alerts");
     } finally {
-      if (showLoading) setIsLoading(false);
+      setIsLoading(false);
     }
   }, []);
 
