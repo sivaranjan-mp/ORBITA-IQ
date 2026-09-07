@@ -21,6 +21,11 @@ from app.schemas.astrodynamics import (
     StateVectorResponse,
 )
 from app.schemas.cdm import CDMRecordBase, CDMRecordCreate, CDMRecordResponse
+from app.schemas.maneuvers import (
+    ManeuverCandidateResponse,
+    ManeuverGenerationRequest,
+    ManeuverGenerationResponse,
+)
 
 __all__ = [
     "AlgorithmVersionBase",
@@ -34,6 +39,9 @@ __all__ = [
     "DataSourceBase",
     "DataSourceCreate",
     "DataSourceResponse",
+    "ManeuverCandidateResponse",
+    "ManeuverGenerationRequest",
+    "ManeuverGenerationResponse",
     "OEMRecordBase",
     "OEMRecordCreate",
     "OEMRecordResponse",
@@ -47,3 +55,4 @@ __all__ = [
     "CDMRecordCreate",
     "CDMRecordResponse",
 ]
+

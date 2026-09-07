@@ -24,9 +24,12 @@ from app.schemas.alerts import (
     ScreeningRunResponse,
 )
 from app.schemas.auth import UserProfile
+from app.schemas.maneuvers import ManeuverGenerationRequest, ManeuverGenerationResponse
 from app.services.alert_service import AlertService
 from app.services.data_quality_service import DataQualityService
+from app.services.maneuver_candidates import ManeuverCandidateService
 from app.services.satguard_service import SatguardService
+
 
 logger = logging.getLogger(__name__)
 
@@ -542,4 +545,71 @@ async def seed_simulated_fleet_alerts(
     service = AlertService(db)
     created = await service.seed_simulated_alerts()
     return [_format_alert(a) for a in created]
+
+
+@router.post("/{alert_id}/maneuver-candidates", response_model=ManeuverGenerationResponse)
+async def generate_maneuver_candidates(
+    alert_id: str,
+    request: Optional[ManeuverGenerationRequest] = None,
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generates a grid of candidate collision-avoidance maneuvers for the given conjunction alert,
+    propagates the perturbed primary satellite trajectory via Two-Body + J2 numerical integration,
+    refines post-maneuver TCA and miss distance against the secondary object, and scores/ranks
+    candidates by efficiency (miss-distance improvement per unit delta-v).
+    """
+    try:
+        alert_uuid = uuid.UUID(alert_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid alert UUID format")
+
+    service = ManeuverCandidateService(db)
+
+    magnitude_grid = request.magnitude_grid_m_s if request else None
+    timing_grid = request.timing_grid_hours if request else None
+    directions = request.directions if request else None
+    save_to_db = request.save_to_db if request is not None else True
+
+    try:
+        result = await service.generate_candidates_for_alert(
+            alert_id=alert_uuid,
+            magnitude_grid_m_s=magnitude_grid,
+            timing_grid_hours=timing_grid,
+            directions=directions,
+            save_to_db=save_to_db,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Error generating maneuver candidates for alert {alert_id}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Maneuver candidate generation failed: {str(exc)}")
+
+
+@router.get("/{alert_id}/maneuver-candidates", response_model=ManeuverGenerationResponse)
+async def get_maneuver_candidates(
+    alert_id: str,
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retrieves previously computed and cached candidate collision-avoidance maneuvers for the given alert.
+    """
+    try:
+        alert_uuid = uuid.UUID(alert_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid alert UUID format")
+
+    service = ManeuverCandidateService(db)
+    result = await service.get_saved_candidates_for_alert(alert_uuid)
+
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="No candidate maneuvers found for this alert. Call POST to generate candidates.",
+        )
+    return result
+
 

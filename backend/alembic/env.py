@@ -34,6 +34,7 @@ from app.models.satellites import Satellite, OrbitState, TLERecord, OMMRecord
 from app.models.conjunctions import ConjunctionEvent
 from app.models.catalog import CatalogSatellite
 from app.models.alerts import Alert, AlertHistory, AlertStatusHistory, ConjunctionAlert
+from app.models.maneuvers import ManeuverCandidate
 
 target_metadata = Base.metadata
 

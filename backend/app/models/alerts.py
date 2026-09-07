@@ -12,7 +12,9 @@ from app.models.ai_advisory import AIManeuverAdvisory
 
 if TYPE_CHECKING:
     from app.models.conjunctions import ConjunctionEvent
+    from app.models.maneuvers import ManeuverCandidate
     from app.models.satellites import Satellite
+
 
 
 class ConjunctionAlert(Base):
@@ -107,6 +109,10 @@ class ConjunctionAlert(Base):
     status_history: Mapped[List["AlertStatusHistory"]] = relationship(
         "AlertStatusHistory", back_populates="alert", cascade="all, delete-orphan", lazy="selectin", order_by="desc(AlertStatusHistory.changed_at)"
     )
+    maneuver_candidates: Mapped[List["ManeuverCandidate"]] = relationship(
+        "ManeuverCandidate", back_populates="alert", cascade="all, delete-orphan", lazy="selectin", order_by="desc(ManeuverCandidate.efficiency_m_per_m_s)"
+    )
+
 
 
 class AlertStatusHistory(Base):

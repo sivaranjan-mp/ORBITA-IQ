@@ -38,3 +38,13 @@ class AlertState(str, Enum):
     ACTIVE = "active"
     ACKNOWLEDGED = "acknowledged"
     RESOLVED = "resolved"
+
+
+class ManeuverDirection(str, Enum):
+    ALONG_TRACK_EARLIER = "along_track_earlier"
+    ALONG_TRACK_LATER = "along_track_later"
+    RADIAL_POSITIVE = "radial_positive"
+    RADIAL_NEGATIVE = "radial_negative"
+    CROSS_TRACK_POSITIVE = "cross_track_positive"
+    CROSS_TRACK_NEGATIVE = "cross_track_negative"
+

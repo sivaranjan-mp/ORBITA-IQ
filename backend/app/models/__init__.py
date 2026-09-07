@@ -12,7 +12,8 @@ from app.models.astrodynamics import (
 )
 from app.models.catalog import CatalogSatellite
 from app.models.conjunctions import ConjunctionEvent
-from app.models.enums import AlertState, ConjunctionStatus, ObjectType, RiskLevel, SatelliteStatus, UserRole
+from app.models.enums import AlertState, ConjunctionStatus, ManeuverDirection, ObjectType, RiskLevel, SatelliteStatus, UserRole
+from app.models.maneuvers import ManeuverCandidate
 from app.models.satellites import OMMRecord, OrbitState, Satellite, TLERecord
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "CovarianceMatrix",
     "DataFreshness",
     "DataSource",
+    "ManeuverCandidate",
     "OEMRecord",
     "OMMRecord",
     "OrbitSolution",
@@ -37,8 +39,10 @@ __all__ = [
     "TLERecord",
     "AlertState",
     "ConjunctionStatus",
+    "ManeuverDirection",
     "ObjectType",
     "RiskLevel",
     "SatelliteStatus",
     "UserRole",
 ]
+
