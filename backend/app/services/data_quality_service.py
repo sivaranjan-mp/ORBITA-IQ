@@ -440,10 +440,8 @@ class DataQualityService:
                                 eccentricity=eccentricity,
                                 inclination_deg=parsed.get("inclination_deg"),
                                 period_minutes=parsed.get("period_minutes"),
-                                semi_major_axis_km=parsed.get("semi_major_axis_km"),
                                 apogee_km=parsed.get("apogee_km"),
                                 perigee_km=parsed.get("perigee_km"),
-                                source="CELESTRAK",
                             )
                             db.add(cat_entry)
                             await db.commit()
