@@ -19,4 +19,4 @@ services:
         value: "https://orbita-iq.vercel.app"
       - key: CORS_ORIGINS
         value: '["https://satellite-ops.vercel.app", "https://orbita-iq.vercel.app"]'
-    autoDeploy: false
+    autoDeploy: true
