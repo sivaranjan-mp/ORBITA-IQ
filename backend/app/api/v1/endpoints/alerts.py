@@ -155,11 +155,14 @@ async def _format_alerts_with_quality(alerts: list, db: AsyncSession) -> list[di
                     db=db, norad_id=norad_id, satellite_id=sat_id, explicit_now=now
                 )
             except Exception as exc:
-                logger.warning(
-                    f"Exception calculating data quality for NORAD {norad_id} (sat_id={sat_id}): {exc}. "
-                    "Degrading gracefully to insufficient data bundle."
+                logger.error(
+                    f"Exception calculating data quality for NORAD {norad_id} (sat_id={sat_id}): {type(exc).__name__}: {exc}. "
+                    "Degrading gracefully to insufficient data bundle.",
+                    exc_info=True,
                 )
-                bundle = DataQualityService.get_insufficient_data_bundle(norad_id=norad_id, explicit_now=now)
+                bundle = DataQualityService.get_insufficient_data_bundle(
+                    norad_id=norad_id, explicit_now=now, reason=f"Exception: {type(exc).__name__}: {exc}"
+                )
             quality_cache[cache_key] = bundle
         return quality_cache[cache_key]
 
@@ -174,14 +177,18 @@ async def _format_alerts_with_quality(alerts: list, db: AsyncSession) -> list[di
         try:
             base_dict["primaryDataQuality"] = await get_quality(pri_norad, pri_id)
         except Exception as exc:
-            logger.warning(f"Could not compute primary data quality for NORAD {pri_norad}: {exc}")
-            base_dict["primaryDataQuality"] = DataQualityService.get_insufficient_data_bundle(pri_norad, explicit_now=now)
+            logger.error(f"Could not compute primary data quality for NORAD {pri_norad}: {type(exc).__name__}: {exc}", exc_info=True)
+            base_dict["primaryDataQuality"] = DataQualityService.get_insufficient_data_bundle(
+                pri_norad, explicit_now=now, reason=f"Exception: {type(exc).__name__}: {exc}"
+            )
 
         try:
             base_dict["secondaryDataQuality"] = await get_quality(sec_norad, sec_id)
         except Exception as exc:
-            logger.warning(f"Could not compute secondary data quality for NORAD {sec_norad}: {exc}")
-            base_dict["secondaryDataQuality"] = DataQualityService.get_insufficient_data_bundle(sec_norad, explicit_now=now)
+            logger.error(f"Could not compute secondary data quality for NORAD {sec_norad}: {type(exc).__name__}: {exc}", exc_info=True)
+            base_dict["secondaryDataQuality"] = DataQualityService.get_insufficient_data_bundle(
+                sec_norad, explicit_now=now, reason=f"Exception: {type(exc).__name__}: {exc}"
+            )
 
         formatted_list.append(base_dict)
 

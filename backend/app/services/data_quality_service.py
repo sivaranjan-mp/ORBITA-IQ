@@ -407,16 +407,71 @@ class DataQualityService:
                 except Exception as db_exc:
                     logger.debug(f"Catalog query for NORAD {norad_id} notice: {db_exc}")
 
+            # 2b. Attempt live CelesTrak TLE lookup fallback if object not present in local DB
+            celestrak_lookup_reason: Optional[str] = None
+            if (not epoch or not line1) and norad_id:
+                try:
+                    from app.services.celestrak_service import fetch_tle_by_norad_id
+                    from app.services.tle_parser import parse_tle
+
+                    tle_text = await fetch_tle_by_norad_id(norad_id)
+                    if tle_text:
+                        parsed = parse_tle(tle_text)
+                        raw_source = "CELESTRAK"
+                        epoch = parsed.get("epoch")
+                        line1 = parsed.get("line1")
+                        line2 = parsed.get("line2")
+                        eccentricity = parsed.get("eccentricity")
+                        ingestion_time = now
+                        if not orbit_regime:
+                            orbit_regime = cls.derive_orbit_regime(
+                                line1=line1, line2=line2, eccentricity=eccentricity
+                            )
+
+                        # Cache into catalog_satellites for fast future queries
+                        try:
+                            cat_entry = CatalogSatellite(
+                                norad_id=norad_id,
+                                name=parsed.get("name") or f"OBJECT-{norad_id}",
+                                epoch=epoch,
+                                line1=line1,
+                                line2=line2,
+                                orbit_regime=orbit_regime,
+                                eccentricity=eccentricity,
+                                inclination_deg=parsed.get("inclination_deg"),
+                                period_minutes=parsed.get("period_minutes"),
+                                semi_major_axis_km=parsed.get("semi_major_axis_km"),
+                                apogee_km=parsed.get("apogee_km"),
+                                perigee_km=parsed.get("perigee_km"),
+                                source="CELESTRAK",
+                            )
+                            db.add(cat_entry)
+                            await db.commit()
+                        except Exception as cache_exc:
+                            await db.rollback()
+                            logger.debug(f"Could not cache live TLE for NORAD {norad_id} into catalog_satellites: {cache_exc}")
+                except Exception as cel_exc:
+                    celestrak_lookup_reason = f"{type(cel_exc).__name__}: {cel_exc}"
+
             # 3. If no satellite or catalog record was found and no TLE/epoch exists:
             if not primary_sat and not cat_sat and not line1 and not epoch:
+                specific_reason = (
+                    f"No matching row in fleet satellites or catalog_satellites for NORAD {norad_id}, "
+                    f"and live CelesTrak query failed ({celestrak_lookup_reason or 'No TLE returned'})"
+                )
                 logger.info(
-                    f"Insufficient orbit data for object NORAD {norad_id}. "
+                    f"Insufficient orbit data for object NORAD {norad_id}: {specific_reason}. "
                     "Returning explicit insufficient data bundle."
                 )
-                return cls.get_insufficient_data_bundle(norad_id=norad_id, explicit_now=now)
+                return cls.get_insufficient_data_bundle(
+                    norad_id=norad_id, explicit_now=now, reason=specific_reason
+                )
 
             # Fallbacks if epoch or ingestion_time is missing on an existing record
             if not epoch:
+                logger.warning(
+                    f"Object NORAD {norad_id} found in DB but epoch is NULL. Defaulting epoch to current time."
+                )
                 epoch = now
             if not ingestion_time:
                 ingestion_time = now
@@ -486,8 +541,11 @@ class DataQualityService:
             )
 
         except Exception as exc:
-            logger.warning(
-                f"Unhandled exception in evaluate_orbit_quality for NORAD {norad_id}: {exc}. "
-                "Returning graceful insufficient data bundle."
+            logger.error(
+                f"Unhandled exception in evaluate_orbit_quality for NORAD {norad_id}: {type(exc).__name__}: {exc}. "
+                "Returning graceful insufficient data bundle.",
+                exc_info=True,
             )
-            return cls.get_insufficient_data_bundle(norad_id=norad_id, explicit_now=now)
+            return cls.get_insufficient_data_bundle(
+                norad_id=norad_id, explicit_now=now, reason=f"Exception: {type(exc).__name__}: {exc}"
+            )
