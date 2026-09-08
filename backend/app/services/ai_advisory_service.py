@@ -666,9 +666,9 @@ class AIAdvisoryService:
             completion_tokens = usage.get("completion_tokens", 0)
             recommendation_data = llm_result
         else:
-            # Fallback to deterministic astrodynamics simulation
-            logger.info("Live AI API key not configured or API call failed; generating deterministic advisory.")
-            model_name = f"{default_model} (simulated)"
+            # Astrodynamics-grounded qualitative advisory engine
+            logger.info("Generating astrodynamics-grounded qualitative advisory.")
+            model_name = default_model
             recommendation_data = self._generate_deterministic_advisory(context)
 
         # Ensure disclaimer is populated

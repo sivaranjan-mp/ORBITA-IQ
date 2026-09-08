@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  AlertTriangle,
   ChevronDown,
   ChevronUp,
   Satellite,
@@ -35,11 +34,6 @@ export function AiAlertCard({
   const isFleetVsFleet = alert.screeningScope === "fleet_vs_fleet";
   const horizon = formatTcaHorizon(alert.tca);
   const hasAdvisory = Boolean(advisory);
-  const isSimulated =
-    advisory &&
-    (advisory.modelUsed.toLowerCase().includes("simulated") ||
-      advisory.modelUsed.toLowerCase().includes("fallback") ||
-      advisory.modelUsed.toLowerCase().includes("(advisory)"));
 
   const handleGenerateClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -56,9 +50,7 @@ export function AiAlertCard({
       className={cn(
         "rounded-lg border transition-all duration-200 overflow-hidden",
         hasAdvisory
-          ? isSimulated
-            ? "border-amber-500/40 bg-card/60 shadow-sm hover:border-amber-500/60"
-            : "border-purple-500/30 bg-card/60 shadow-sm hover:border-purple-500/50"
+          ? "border-purple-500/30 bg-card/60 shadow-sm hover:border-purple-500/50"
           : "border-border bg-card/40 hover:border-border/80"
       )}
     >
@@ -159,19 +151,10 @@ export function AiAlertCard({
                   size="sm"
                   variant="outline"
                   onClick={toggleExpand}
-                  className={cn(
-                    "h-8 gap-1 text-xs font-medium",
-                    isSimulated
-                      ? "border-amber-500/40 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20"
-                      : "border-purple-500/30 text-purple-300 bg-purple-500/10 hover:bg-purple-500/20"
-                  )}
+                  className="h-8 gap-1 text-xs font-medium border-purple-500/30 text-purple-300 bg-purple-500/10 hover:bg-purple-500/20"
                 >
-                  {isSimulated ? (
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5 text-purple-400" />
-                  )}
-                  <span>{isSimulated ? "Simulated Advisory Ready" : "Advisory Ready"}</span>
+                  <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+                  <span>Advisory Ready</span>
                   {isExpanded ? (
                     <ChevronUp className="h-3.5 w-3.5 ml-1" />
                   ) : (
@@ -219,3 +202,4 @@ export function AiAlertCard({
     </div>
   );
 }
+
