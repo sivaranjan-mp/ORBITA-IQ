@@ -43,7 +43,9 @@ export function SatelliteQuickList() {
                 <span className="truncate text-sm font-medium">{sat.name}</span>
               </div>
               <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {sat.altitudeKm != null ? `${sat.altitudeKm} km` : "N/A"}
+                {sat.altitudeKm != null
+                  ? `${sat.altitudeKm.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`
+                  : "N/A"}
               </span>
             </div>
           ))}
@@ -51,3 +53,4 @@ export function SatelliteQuickList() {
     </Card>
   );
 }
+
