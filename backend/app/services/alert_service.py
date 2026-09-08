@@ -41,10 +41,12 @@ class AlertService:
     async def seed_simulated_alerts(self) -> List[ConjunctionAlert]:
         now = datetime.now(timezone.utc)
         created_alerts = []
-        for item in SIMULATED_COLLISION_DATA:
-            tca_time = now + timedelta(days=item["days"])
+        for idx, item in enumerate(SIMULATED_COLLISION_DATA):
+            per_pair_sec_offset = ((item["a_norad"] * 73 + item["b_norad"] * 31 + idx * 137) % 86400) / 100.0
+            tca_time = now + timedelta(days=item["days"], seconds=per_pair_sec_offset)
             miss_km = item["miss_km"]
             vel_kms = item["vel_kms"]
+
 
             # Compute physically consistent RIC decomposition: miss_km^2 = R^2 + I^2 + C^2
             radial_km = round(miss_km * 0.22, 3)

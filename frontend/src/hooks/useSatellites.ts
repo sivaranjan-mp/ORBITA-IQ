@@ -161,7 +161,7 @@ export function useSatellites(scope: "mine" | "all" = "mine") {
   const latestOrbitUpdatedAt = useMemo(() => {
     let latest: Date | null = null;
     for (const s of satellites) {
-      const raw = s.updatedAt || s.lastTleEpoch;
+      const raw = s.updatedAt;
       if (raw) {
         const d = new Date(raw);
         if (!isNaN(d.getTime())) {
@@ -171,8 +171,9 @@ export function useSatellites(scope: "mine" | "all" = "mine") {
         }
       }
     }
-    return latest;
-  }, [satellites]);
+    return latest || lastUpdated;
+  }, [satellites, lastUpdated]);
+
 
   // Initial load
   useEffect(() => {

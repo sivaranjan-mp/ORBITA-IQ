@@ -192,9 +192,11 @@ async def run_catalog_sync_job():
 
 
 def init_scheduler():
+    now_utc = datetime.now(timezone.utc)
     scheduler.add_job(
         update_orbit_states, 'interval', minutes=5,
-        id='update_orbit_states_job', replace_existing=True
+        id='update_orbit_states_job', replace_existing=True,
+        next_run_time=now_utc
     )
     scheduler.add_job(
         run_screening_job, 'interval', minutes=20,
@@ -209,3 +211,4 @@ def init_scheduler():
 
 def shutdown_scheduler():
     scheduler.shutdown()
+

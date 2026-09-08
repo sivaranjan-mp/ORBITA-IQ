@@ -381,8 +381,10 @@ async def test_get_saved_candidates_for_alert():
 
 def test_maneuver_candidates_endpoint_unauthenticated():
     """Validates that endpoint requires authentication."""
+    app.dependency_overrides.clear()
     response = client.post(f"/api/v1/alerts/{uuid.uuid4()}/maneuver-candidates")
     assert response.status_code in (401, 403)
+
 
 
 def test_maneuver_candidates_invalid_uuid():

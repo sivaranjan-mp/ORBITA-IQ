@@ -151,18 +151,19 @@ export function AiAlertCard({
                   size="sm"
                   variant="outline"
                   onClick={toggleExpand}
-                  className="h-8 gap-1 text-xs font-medium border-purple-500/30 text-purple-300 bg-purple-500/10 hover:bg-purple-500/20"
+                  className="h-8 gap-1.5 text-xs font-semibold border-purple-500/50 text-purple-200 bg-purple-500/20 hover:bg-purple-500/30 shadow-sm"
                 >
-                  <Sparkles className="h-3.5 w-3.5 text-purple-400" />
-                  <span>Advisory Ready</span>
+                  <Sparkles className="h-3.5 w-3.5 text-purple-300 animate-pulse" />
+                  <span>View Cached Advisory</span>
                   {isExpanded ? (
-                    <ChevronUp className="h-3.5 w-3.5 ml-1" />
+                    <ChevronUp className="h-3.5 w-3.5 ml-0.5" />
                   ) : (
-                    <ChevronDown className="h-3.5 w-3.5 ml-1" />
+                    <ChevronDown className="h-3.5 w-3.5 ml-0.5" />
                   )}
                 </Button>
               </div>
             )}
+
           </div>
         </div>
       </div>

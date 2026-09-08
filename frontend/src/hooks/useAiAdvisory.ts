@@ -65,6 +65,7 @@ function buildLocalFallbackAdvisory(alert: ConjunctionAlert): AIManeuverAdvisory
 
 export function useAiAdvisory() {
   const [advisories, setAdvisories] = useState<Record<string, AIManeuverAdvisory>>({});
+  const [cachedCount, setCachedCount] = useState<number>(0);
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,8 +80,13 @@ export function useAiAdvisory() {
           if (adv.alertId) {
             map[adv.alertId] = adv;
           }
+          if (adv.satelliteNoradId && adv.secondaryNoradId) {
+            map[`pair_${adv.satelliteNoradId}_${adv.secondaryNoradId}`] = adv;
+            map[`pair_${adv.secondaryNoradId}_${adv.satelliteNoradId}`] = adv;
+          }
         }
         setAdvisories((prev) => ({ ...prev, ...map }));
+        setCachedCount(data.length);
       }
       setError(null);
     } catch {
@@ -89,6 +95,18 @@ export function useAiAdvisory() {
       setIsLoading(false);
     }
   }, []);
+
+  const getAdvisoryForAlert = useCallback(
+    (alert: ConjunctionAlert): AIManeuverAdvisory | undefined => {
+      if (advisories[alert.id]) return advisories[alert.id];
+      const pairKey1 = `pair_${alert.primaryNoradId}_${alert.secondaryNoradId}`;
+      if (advisories[pairKey1]) return advisories[pairKey1];
+      const pairKey2 = `pair_${alert.secondaryNoradId}_${alert.primaryNoradId}`;
+      if (advisories[pairKey2]) return advisories[pairKey2];
+      return undefined;
+    },
+    [advisories]
+  );
 
   const generateAdvisory = useCallback(
     async (alert: ConjunctionAlert, forceRefresh: boolean = false) => {
@@ -101,17 +119,28 @@ export function useAiAdvisory() {
           force_refresh: forceRefresh,
         });
 
+        const pairKey1 = `pair_${alert.primaryNoradId}_${alert.secondaryNoradId}`;
+        const pairKey2 = `pair_${alert.secondaryNoradId}_${alert.primaryNoradId}`;
+
         setAdvisories((prev) => ({
           ...prev,
           [alert.id]: data,
+          [pairKey1]: data,
+          [pairKey2]: data,
         }));
+        setCachedCount((c) => c + 1);
         return data;
       } catch {
         // Fallback for simulated alerts / dev mode if backend endpoint hits simulated alert ID
         const fallback = buildLocalFallbackAdvisory(alert);
+        const pairKey1 = `pair_${alert.primaryNoradId}_${alert.secondaryNoradId}`;
+        const pairKey2 = `pair_${alert.secondaryNoradId}_${alert.primaryNoradId}`;
+
         setAdvisories((prev) => ({
           ...prev,
           [alert.id]: fallback,
+          [pairKey1]: fallback,
+          [pairKey2]: fallback,
         }));
         return fallback;
       } finally {
@@ -131,10 +160,13 @@ export function useAiAdvisory() {
 
   return {
     advisories,
+    cachedCount,
     generatingIds,
     isLoading,
     error,
     fetchCachedAdvisories,
     generateAdvisory,
+    getAdvisoryForAlert,
   };
 }
+

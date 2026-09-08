@@ -33,10 +33,11 @@ const SCOPE_FILTERS: Array<{ label: string; value: ScreeningScope | "all" }> = [
 export function AiAssistantPage() {
   const { alerts, isLoading: isAlertsLoading, refetch: refetchAlerts } = useAlerts();
   const {
-    advisories,
+    cachedCount,
     generatingIds,
     generateAdvisory,
     fetchCachedAdvisories,
+    getAdvisoryForAlert,
   } = useAiAdvisory();
 
   const [riskFilter, setRiskFilter] = useState<RiskLevel | "all">("all");
@@ -69,7 +70,9 @@ export function AiAssistantPage() {
   // Metric computations
   const totalAlerts = alerts.length;
   const criticalHighCount = alerts.filter((a) => a.riskLevel === "critical" || a.riskLevel === "high").length;
-  const advisoriesCount = Object.keys(advisories).length;
+  const matchedCachedCount = alerts.filter((a) => Boolean(getAdvisoryForAlert(a))).length;
+  const advisoriesCount = matchedCachedCount > 0 ? matchedCachedCount : cachedCount;
+
   const nearestAlert = alerts.length > 0
     ? [...alerts].sort((a, b) => new Date(a.tca).getTime() - new Date(b.tca).getTime())[0]
     : null;
@@ -231,7 +234,7 @@ export function AiAssistantPage() {
 
         {!isAlertsLoading &&
           filteredAlerts.map((alert) => {
-            const advisory = advisories[alert.id];
+            const advisory = getAdvisoryForAlert(alert);
             const isGenerating = generatingIds.has(alert.id);
 
             return (
@@ -248,3 +251,4 @@ export function AiAssistantPage() {
     </div>
   );
 }
+

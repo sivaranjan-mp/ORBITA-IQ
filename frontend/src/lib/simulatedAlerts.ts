@@ -306,12 +306,15 @@ export function generateSimulatedAlerts(): ConjunctionAlert[] {
   const now = Date.now();
   const createdDate = new Date(now - 3600_000 * 2).toISOString();
 
-  return BASE_SIMULATED_DATA.map((item) => {
-    const tcaTimestamp = now + item.daysOffset * 86_400_000;
+  return BASE_SIMULATED_DATA.map((item, idx) => {
+    // Physically realistic per-pair distinct continuous seconds and millisecond offsets
+    const perPairSecondsOffset = ((item.primaryNoradId * 73 + item.secondaryNoradId * 31 + idx * 137) % 86400) / 100.0;
+    const tcaTimestamp = now + item.daysOffset * 86_400_000 + perPairSecondsOffset * 1000;
     const tcaIso = new Date(tcaTimestamp).toISOString();
 
     const missKm = item.missDistanceKm;
     const velKms = item.relativeVelocityKmS;
+
     const radialKm = parseFloat((missKm * 0.22).toFixed(3));
     const alongTrackKm = parseFloat((missKm * 0.88).toFixed(3));
     const crossSq = Math.max(0, missKm ** 2 - radialKm ** 2 - alongTrackKm ** 2);

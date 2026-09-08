@@ -56,12 +56,28 @@ class SatelliteService:
         raw_tle = await celestrak_service.fetch_tle_by_norad_id(norad_id)
         parsed = parse_tle(raw_tle)
 
-        sat_name = parsed.get("name") or "Unknown"
+        sat_name = parsed.get("name")
+        cat_sat = None
+        if not sat_name or sat_name.upper().startswith("OBJECT ") or sat_name.lower() in ("unknown", "unknown object"):
+            try:
+                cat_match = await self.session.execute(
+                    select(CatalogSatellite).where(CatalogSatellite.norad_id == norad_id)
+                )
+                cat_sat = cat_match.scalars().first()
+                if cat_sat and cat_sat.name:
+                    sat_name = cat_sat.name
+            except Exception:
+                pass
+
+        if not sat_name:
+            sat_name = f"SAT-{norad_id}"
+
+        intl_des = (cat_sat.international_designator if cat_sat and cat_sat.international_designator else None) or parsed.get("international_designator")
 
         sat = Satellite(
             norad_id=norad_id,
             name=sat_name,
-            international_designator=parsed["international_designator"],
+            international_designator=intl_des,
             object_type="payload",
             status="active",
             owner_org=owner_org
@@ -107,6 +123,19 @@ class SatelliteService:
             return existing
 
         sat_name = parsed.get("name")
+        cat_sat = None
+        if not sat_name or sat_name.upper().startswith("OBJECT ") or sat_name.lower() in ("unknown", "unknown object"):
+            # 1. First check if catalog_satellites has an authoritative record with real name
+            try:
+                cat_match = await self.session.execute(
+                    select(CatalogSatellite).where(CatalogSatellite.norad_id == norad_id)
+                )
+                cat_sat = cat_match.scalars().first()
+                if cat_sat and cat_sat.name and not cat_sat.name.upper().startswith("OBJECT "):
+                    sat_name = cat_sat.name
+            except Exception:
+                pass
+        
         if not sat_name:
             # Fall back to CelesTrak name lookup by NORAD ID parsed from line 1
             try:
@@ -120,13 +149,18 @@ class SatelliteService:
                 )
                 sat_name = None
 
+        if not sat_name and cat_sat and cat_sat.name:
+            sat_name = cat_sat.name
+
         if not sat_name:
-            sat_name = "Unknown"
+            sat_name = f"SAT-{norad_id}"
+
+        intl_des = (cat_sat.international_designator if cat_sat and cat_sat.international_designator else None) or parsed.get("international_designator")
 
         sat = Satellite(
             norad_id=norad_id,
             name=sat_name,
-            international_designator=parsed["international_designator"],
+            international_designator=intl_des,
             object_type="payload",
             status="active",
             owner_org=owner_org
@@ -162,6 +196,8 @@ class SatelliteService:
             .options(selectinload(Satellite.orbit_state), selectinload(Satellite.tle_records))
         )
         return result.scalar_one()
+
+
 
     async def update_satellite(self, sat_id: str, updates: SatelliteUpdateRequest) -> Satellite:
         sat = await self.get_satellite_by_id(sat_id)
@@ -259,3 +295,42 @@ class SatelliteService:
             )
         )
         return result.scalar_one()
+
+    async def sync_fleet_satellite_names(self) -> dict:
+        """
+        Backfills real catalog names for any fleet satellites currently having
+        international designators, placeholder names, or 'Unknown'.
+        """
+        import re
+        cat_stmt = select(CatalogSatellite.norad_id, CatalogSatellite.name)
+        cat_res = await self.session.execute(cat_stmt)
+        cat_names = {row[0]: row[1] for row in cat_res.all() if row[1]}
+
+        sat_stmt = select(Satellite)
+        sat_res = await self.session.execute(sat_stmt)
+        satellites = sat_res.scalars().all()
+
+        updated_count = 0
+        intl_pattern = re.compile(r"^\d{4}-\d{3}[A-Z]+$")
+
+        for sat in satellites:
+            curr_name = (sat.name or "").strip()
+            is_placeholder = (
+                not curr_name
+                or curr_name.lower() in ("unknown", "unknown object")
+                or curr_name.upper().startswith("OBJECT ")
+                or intl_pattern.match(curr_name)
+                or (sat.international_designator and curr_name == sat.international_designator)
+            )
+
+            if is_placeholder and sat.norad_id in cat_names:
+                real_name = cat_names[sat.norad_id]
+                if real_name and real_name != curr_name and not real_name.upper().startswith("OBJECT "):
+                    sat.name = real_name
+                    updated_count += 1
+
+        if updated_count > 0:
+            await self.session.commit()
+
+        return {"updated_count": updated_count, "total_fleet": len(satellites)}
+

@@ -268,6 +268,22 @@ async def refresh_satellite_orbits(
             )
 
 
+@router.post("/sync-names")
+async def sync_satellite_names(
+    current_user: UserProfile = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if current_user.role not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    service = SatelliteService(db)
+    result = await service.sync_fleet_satellite_names()
+    return {
+        "message": f"Successfully updated {result['updated_count']} of {result['total_fleet']} satellites with official catalog names.",
+        **result
+    }
+
+
+
 @router.post("/norad", response_model=SatelliteResponse)
 async def add_satellite_by_norad(
     request: SatelliteAddRequest,
