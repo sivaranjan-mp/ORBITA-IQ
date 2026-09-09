@@ -298,18 +298,40 @@ const BASE_SIMULATED_DATA: SimulatedItem[] = [
   },
 ];
 
+const STORAGE_KEY_ANCHOR = "orbita_alert_anchor_epoch_ms";
+
+function getAnchorEpochMs(): number {
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY_ANCHOR);
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          return parsed;
+        }
+      }
+      const current = Date.now();
+      window.localStorage.setItem(STORAGE_KEY_ANCHOR, String(current));
+      return current;
+    } catch {
+      // Ignore storage errors and use fallback
+    }
+  }
+  return 1788912000000; // Fixed fallback reference epoch
+}
+
 /**
- * Dynamically produces 20 simulated collision alerts with dates
- * strictly between 7.0 and 14.0 days into the future.
+ * Produces simulated collision alerts with fixed, immutable absolute TCAs
+ * anchored to the initial generation epoch so countdowns tick down accurately.
  */
 export function generateSimulatedAlerts(): ConjunctionAlert[] {
-  const now = Date.now();
-  const createdDate = new Date(now - 3600_000 * 2).toISOString();
+  const anchorMs = getAnchorEpochMs();
+  const createdDate = new Date(anchorMs).toISOString();
 
   return BASE_SIMULATED_DATA.map((item, idx) => {
     // Physically realistic per-pair distinct continuous seconds and millisecond offsets
     const perPairSecondsOffset = ((item.primaryNoradId * 73 + item.secondaryNoradId * 31 + idx * 137) % 86400) / 100.0;
-    const tcaTimestamp = now + item.daysOffset * 86_400_000 + perPairSecondsOffset * 1000;
+    const tcaTimestamp = anchorMs + item.daysOffset * 86_400_000 + perPairSecondsOffset * 1000;
     const tcaIso = new Date(tcaTimestamp).toISOString();
 
     const missKm = item.missDistanceKm;
@@ -361,3 +383,4 @@ export function generateSimulatedAlerts(): ConjunctionAlert[] {
     };
   });
 }
+

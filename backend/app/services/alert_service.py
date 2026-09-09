@@ -39,6 +39,11 @@ class AlertService:
         self.repository = AlertsRepository(session)
 
     async def seed_simulated_alerts(self) -> List[ConjunctionAlert]:
+        # If alerts already exist in the database, return them to maintain fixed historical TCAs
+        existing = await self.repository.get_all_conjunction_alerts()
+        if existing:
+            return existing
+
         now = datetime.now(timezone.utc)
         created_alerts = []
         for idx, item in enumerate(SIMULATED_COLLISION_DATA):
@@ -46,7 +51,6 @@ class AlertService:
             tca_time = now + timedelta(days=item["days"], seconds=per_pair_sec_offset)
             miss_km = item["miss_km"]
             vel_kms = item["vel_kms"]
-
 
             # Compute physically consistent RIC decomposition: miss_km^2 = R^2 + I^2 + C^2
             radial_km = round(miss_km * 0.22, 3)

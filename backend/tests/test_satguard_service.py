@@ -176,3 +176,173 @@ async def test_satguard_crossing_screening():
         + alert_item.cross_track_separation_km ** 2
     ) ** 0.5
     assert ric_norm == pytest.approx(alert_item.miss_distance_km, abs=1e-4)
+
+
+@pytest.mark.asyncio
+async def test_satguard_tca_stability_across_repeated_runs():
+    """
+    Test that running screening repeatedly across elapsed wall-clock time
+    maintains the exact same absolute event TCA (drift <= 1 second), while
+    the remaining time (days out) accurately counts down toward zero.
+    """
+    from datetime import timedelta
+
+    db = AsyncMock()
+    db.add = MagicMock()
+    service = SatguardService(db)
+
+    # GAOFEN-2 vs SCISAT 1
+    tle1_1 = "1 40118U 14049A   26245.60661005  .00000624  00000+0  87448-4 0  9991"
+    tle1_2 = "2 40118  98.0040 309.7150 0007151 354.2047   5.9082 14.80987202650692"
+    sat1 = Satellite(id="s1", norad_id=40118, name="GAOFEN-2", status="active")
+    sat1.tle_records = [TLERecord(line1=tle1_1, line2=tle1_2, epoch=datetime.now(timezone.utc))]
+
+    tle2_1 = "1 27858U 03036A   26245.61247089  .00000381  00000+0  53260-4 0  9999"
+    tle2_2 = "2 27858  73.9314  17.4945 0006230  57.4862 302.6915 14.81526660242915"
+    sat2 = Satellite(id="s2", norad_id=27858, name="SCISAT 1", status="active")
+    sat2.tle_records = [TLERecord(line1=tle2_1, line2=tle2_2, epoch=datetime.now(timezone.utc))]
+
+    # Run 1 at T0
+    t0 = datetime.now(timezone.utc)
+    added_alerts = []
+
+    def mock_execute_run1(stmt, *args, **kwargs):
+        stmt_str = str(stmt).lower()
+        mock_res = MagicMock()
+        mock_scalars = MagicMock()
+        if "from satellites" in stmt_str:
+            mock_scalars.all.return_value = [sat1, sat2]
+        elif "from catalog_satellites" in stmt_str:
+            mock_scalars.all.return_value = []
+        elif "from conjunction_alerts" in stmt_str:
+            mock_scalars.all.return_value = []
+            mock_scalars.first.return_value = None
+        else:
+            mock_scalars.all.return_value = []
+            mock_scalars.first.return_value = None
+        mock_res.scalars.return_value = mock_scalars
+        return mock_res
+
+    db.execute.side_effect = mock_execute_run1
+    db.add.side_effect = lambda obj: added_alerts.append(obj)
+
+    metrics1 = await service.screen_all(lookahead_hours=120.0, step_size_s=60)
+
+    initial_alert = next(a for a in added_alerts if isinstance(a, ConjunctionAlert))
+    initial_tca = initial_alert.tca
+    initial_days_out = (initial_tca - t0).total_seconds() / 86400.0
+
+    assert initial_days_out > 0.0
+
+    # Run 2 at T0 + 3.0 Hours (simulated elapsed time)
+    t1 = t0 + timedelta(hours=3.0)
+    existing_alert = ConjunctionAlert(
+        id="alert-1",
+        satellite_a_norad_id=40118,
+        satellite_a_name="GAOFEN-2",
+        satellite_b_norad_id=27858,
+        satellite_b_name="SCISAT 1",
+        tca=initial_tca,
+        miss_distance_km=initial_alert.miss_distance_km,
+        miss_distance_m=initial_alert.miss_distance_m,
+        relative_velocity_km_s=initial_alert.relative_velocity_km_s,
+        status="open",
+        risk_level="medium",
+        screening_scope="fleet_vs_fleet",
+        detected_by="satguard",
+        created_at=t0,
+        updated_at=t0,
+    )
+
+    def mock_execute_run2(stmt, *args, **kwargs):
+        stmt_str = str(stmt).lower()
+        mock_res = MagicMock()
+        mock_scalars = MagicMock()
+        if "from satellites" in stmt_str:
+            mock_scalars.all.return_value = [sat1, sat2]
+        elif "from catalog_satellites" in stmt_str:
+            mock_scalars.all.return_value = []
+        elif "from conjunction_alerts" in stmt_str:
+            mock_scalars.all.return_value = [existing_alert]
+            mock_scalars.first.return_value = existing_alert
+        else:
+            mock_scalars.all.return_value = []
+            mock_scalars.first.return_value = None
+        mock_res.scalars.return_value = mock_scalars
+        return mock_res
+
+    db.execute.side_effect = mock_execute_run2
+    added_alerts.clear()
+
+    # In Run 2, datetime.now() returns t1
+    with patch("app.services.satguard_service.datetime") as mock_dt:
+        mock_dt.now.return_value = t1
+        mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+        mock_dt.fromtimestamp = datetime.fromtimestamp
+        mock_dt.combine = datetime.combine
+        metrics2 = await service.screen_all(lookahead_hours=120.0, step_size_s=60)
+
+    # 1. TCA must be UNCHANGED (physical event point in time preserved)
+    tca_drift_seconds = abs((existing_alert.tca - initial_tca).total_seconds())
+    assert tca_drift_seconds < 1.0, f"TCA drifted by {tca_drift_seconds}s across runs!"
+
+    # 2. Days out must count down by exactly the elapsed 3 hours (0.125 days)
+    new_days_out = (existing_alert.tca - t1).total_seconds() / 86400.0
+    elapsed_days = initial_days_out - new_days_out
+    assert elapsed_days == pytest.approx(3.0 / 24.0, abs=1e-3)
+
+    # 3. No duplicate event inserted
+    assert metrics2["events_created"] == 0
+
+
+@pytest.mark.asyncio
+async def test_satguard_resolves_passed_alerts():
+    """
+    Test that alerts whose TCA has passed are automatically transitioned to 'resolved'.
+    """
+    from datetime import timedelta
+    db = AsyncMock()
+    db.add = MagicMock()
+    service = SatguardService(db)
+
+    now = datetime.now(timezone.utc)
+    passed_tca = now - timedelta(hours=1)  # Passed 1 hour ago
+
+    passed_alert = ConjunctionAlert(
+        id="passed-1",
+        satellite_a_norad_id=40118,
+        satellite_a_name="GAOFEN-2",
+        satellite_b_norad_id=27858,
+        satellite_b_name="SCISAT 1",
+        tca=passed_tca,
+        status="open",
+        risk_level="medium",
+        screening_scope="fleet_vs_fleet",
+        detected_by="satguard",
+        created_at=now - timedelta(days=2),
+        updated_at=now - timedelta(days=1),
+    )
+
+    def mock_execute(stmt, *args, **kwargs):
+        stmt_str = str(stmt).lower()
+        mock_res = MagicMock()
+        mock_scalars = MagicMock()
+        if "from satellites" in stmt_str:
+            mock_scalars.all.return_value = []
+        elif "from catalog_satellites" in stmt_str:
+            mock_scalars.all.return_value = []
+        elif "from conjunction_alerts" in stmt_str:
+            mock_scalars.all.return_value = [passed_alert]
+            mock_scalars.first.return_value = passed_alert
+        else:
+            mock_scalars.all.return_value = []
+            mock_scalars.first.return_value = None
+        mock_res.scalars.return_value = mock_scalars
+        return mock_res
+
+    db.execute.side_effect = mock_execute
+
+    await service.screen_all(lookahead_hours=120.0)
+
+    assert passed_alert.status == "resolved"
+

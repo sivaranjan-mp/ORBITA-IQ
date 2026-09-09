@@ -153,6 +153,21 @@ class SatguardService:
             except Exception:
                 continue
 
+        # Resolve past alerts whose TCA has passed
+        try:
+            stmt_active = select(ConjunctionAlert).where(
+                ConjunctionAlert.status.in_([ConjunctionStatus.OPEN, ConjunctionStatus.MONITORING])
+            )
+            res_active = await self.db.execute(stmt_active)
+            for alert in res_active.scalars().all():
+                alert_tca = alert.tca if alert.tca.tzinfo else alert.tca.replace(tzinfo=timezone.utc)
+                if alert_tca < (now - timedelta(minutes=2)):
+                    alert.status = "resolved"
+                    alert.updated_at = now
+            await self.db.commit()
+        except Exception as exc:
+            logger.debug(f"Could not update past alert statuses: {exc}")
+
         if not fleet_objects:
             logger.info("No fleet satellites with valid TLEs found for screening.")
             return {
@@ -358,44 +373,68 @@ class SatguardService:
                             "encounter_geometry": geom.encounter_geometry,
                         })
 
-        # Deduplicate and Persist Alerts into conjunction_alerts
+        # Fetch existing active alerts to perform event-aware matching and automatic resolution
+        existing_stmt = select(ConjunctionAlert).where(
+            ConjunctionAlert.status.in_([ConjunctionStatus.OPEN, ConjunctionStatus.MONITORING]),
+        )
+        existing_res = await self.db.execute(existing_stmt)
+        existing_alerts = existing_res.scalars().all()
+
+        # 1. Resolve past alerts whose TCA has passed
+        for ea in existing_alerts:
+            ea_tca = ea.tca if ea.tca.tzinfo else ea.tca.replace(tzinfo=timezone.utc)
+            if ea_tca < (now - timedelta(minutes=2)):
+                ea.status = "resolved"
+                ea.updated_at = now
+
+        # Build lookup of active future alerts: (norad_a, norad_b) -> ConjunctionAlert
+        active_alerts_map: Dict[Tuple[int, int], ConjunctionAlert] = {}
+        for ea in existing_alerts:
+            if ea.status in ("open", "monitoring"):
+                pair_key = (min(ea.satellite_a_norad_id, ea.satellite_b_norad_id), max(ea.satellite_a_norad_id, ea.satellite_b_norad_id))
+                active_alerts_map[pair_key] = ea
+
+        matched_alerts_set = set()
         events_created = 0
+
+        # 2. Match detected encounters against existing active alerts
+        # If an alert already tracks this pair, refine the existing event's parameters
+        # and preserve its fixed epoch rather than sliding days forward
         for alert_data in detected_alerts:
             sat_a = alert_data["sat_a"]
             sat_b = alert_data["sat_b"]
+            pair_key = (min(sat_a["norad_id"], sat_b["norad_id"]), max(sat_a["norad_id"], sat_b["norad_id"]))
 
-            existing_stmt = select(ConjunctionAlert).where(
-                ConjunctionAlert.satellite_a_norad_id == sat_a["norad_id"],
-                ConjunctionAlert.satellite_b_norad_id == sat_b["norad_id"],
-                ConjunctionAlert.status.in_([ConjunctionStatus.OPEN, ConjunctionStatus.MONITORING]),
-            )
-            existing_res = await self.db.execute(existing_stmt)
-            existing_alert = existing_res.scalars().first()
+            matched_existing = active_alerts_map.get(pair_key)
 
-            sat_a_uuid = sat_a.get("id") if sat_a.get("id") else None
-
-            if existing_alert:
-                existing_alert.tca = alert_data["tca"]
-                existing_alert.miss_distance_km = alert_data["miss_distance_km"]
-                existing_alert.miss_distance_m = alert_data["miss_distance_m"]
-                existing_alert.relative_velocity_km_s = alert_data["relative_velocity_km_s"]
-                existing_alert.probability = alert_data["probability"]
-                existing_alert.risk_level = alert_data["risk_level"]
-                existing_alert.screening_scope = alert_data["scope"]
-                existing_alert.relative_position_x = alert_data["relative_position_x"]
-                existing_alert.relative_position_y = alert_data["relative_position_y"]
-                existing_alert.relative_position_z = alert_data["relative_position_z"]
-                existing_alert.relative_velocity_x = alert_data["relative_velocity_x"]
-                existing_alert.relative_velocity_y = alert_data["relative_velocity_y"]
-                existing_alert.relative_velocity_z = alert_data["relative_velocity_z"]
-                existing_alert.radial_separation_km = alert_data["radial_separation_km"]
-                existing_alert.along_track_separation_km = alert_data["along_track_separation_km"]
-                existing_alert.cross_track_separation_km = alert_data["cross_track_separation_km"]
-                existing_alert.relative_velocity_angle_deg = alert_data["relative_velocity_angle_deg"]
-                existing_alert.relative_inclination_deg = alert_data["relative_inclination_deg"]
-                existing_alert.encounter_geometry = alert_data["encounter_geometry"]
-                existing_alert.computed_at = now
+            if matched_existing:
+                cand_tca = matched_existing.tca if matched_existing.tca.tzinfo else matched_existing.tca.replace(tzinfo=timezone.utc)
+                # If detected encounter is within 2 hours of tracked event, refine directly
+                if abs((alert_data["tca"] - cand_tca).total_seconds()) <= 7200.0:
+                    matched_existing.tca = alert_data["tca"]
+                    matched_existing.miss_distance_km = alert_data["miss_distance_km"]
+                    matched_existing.miss_distance_m = alert_data["miss_distance_m"]
+                    matched_existing.relative_velocity_km_s = alert_data["relative_velocity_km_s"]
+                    matched_existing.probability = alert_data["probability"]
+                    matched_existing.risk_level = alert_data["risk_level"]
+                    matched_existing.screening_scope = alert_data["scope"]
+                    matched_existing.relative_position_x = alert_data["relative_position_x"]
+                    matched_existing.relative_position_y = alert_data["relative_position_y"]
+                    matched_existing.relative_position_z = alert_data["relative_position_z"]
+                    matched_existing.relative_velocity_x = alert_data["relative_velocity_x"]
+                    matched_existing.relative_velocity_y = alert_data["relative_velocity_y"]
+                    matched_existing.relative_velocity_z = alert_data["relative_velocity_z"]
+                    matched_existing.radial_separation_km = alert_data["radial_separation_km"]
+                    matched_existing.along_track_separation_km = alert_data["along_track_separation_km"]
+                    matched_existing.cross_track_separation_km = alert_data["cross_track_separation_km"]
+                    matched_existing.relative_velocity_angle_deg = alert_data["relative_velocity_angle_deg"]
+                    matched_existing.relative_inclination_deg = alert_data["relative_inclination_deg"]
+                    matched_existing.encounter_geometry = alert_data["encounter_geometry"]
+                    matched_existing.computed_at = now
+                    matched_alerts_set.add(matched_existing.id)
             else:
+                # Genuinely new conjunction event
+                sat_a_uuid = sat_a.get("id") if sat_a.get("id") else None
                 new_alert = ConjunctionAlert(
                     satellite_a_norad_id=sat_a["norad_id"],
                     satellite_a_name=sat_a["name"],
@@ -441,8 +480,38 @@ class SatguardService:
                     detected_by="satguard",
                 )
                 self.db.add(legacy_event)
-
                 events_created += 1
+
+        # 3. For any active future alerts not matched in the broad scan, refine specifically around their fixed TCA
+        # This keeps miss distance & geometry updated as orbital data refreshes without changing the event epoch
+        for ea in existing_alerts:
+            if ea.status in ("open", "monitoring") and ea.id not in matched_alerts_set:
+                ea_tca = ea.tca if ea.tca.tzinfo else ea.tca.replace(tzinfo=timezone.utc)
+                if ea_tca > now:
+                    sat_a_obj = all_candidate_sats.get(ea.satellite_a_norad_id)
+                    sat_b_obj = all_candidate_sats.get(ea.satellite_b_norad_id)
+                    if sat_a_obj and sat_b_obj:
+                        satrec1 = sat_a_obj["satrec"]
+                        satrec2 = sat_b_obj["satrec"]
+
+                        def local_dist_func(t_offset_s):
+                            dt = ea_tca + timedelta(seconds=t_offset_s)
+                            d, *_ = self._distance_at_time(satrec1, satrec2, dt)
+                            return d
+
+                        res = minimize_scalar(local_dist_func, bounds=(-1800.0, 1800.0), method='bounded')
+                        if res.success:
+                            refined_tca = ea_tca + timedelta(seconds=float(res.x))
+                            refined_dist, r1_vec, v1_vec, r2_vec, v2_vec, rel_vel = self._distance_at_time(
+                                satrec1, satrec2, refined_tca
+                            )
+                            if refined_dist <= miss_dist_threshold_km:
+                                geom = compute_relative_geometry(r1_vec, v1_vec, r2_vec, v2_vec)
+                                ea.tca = refined_tca
+                                ea.miss_distance_km = refined_dist
+                                ea.miss_distance_m = refined_dist * 1000.0
+                                ea.relative_velocity_km_s = geom.relative_speed_km_s
+                                ea.computed_at = now
 
         await self.db.commit()
 
